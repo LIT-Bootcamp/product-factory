@@ -12,7 +12,7 @@ Detailed plan: `docs/superpowers/plans/2026-09-02-product-factory-foundation.md`
 
 Delivers:
 
-- zero-dependency Ruby command-line runtime;
+- Ruby 4.0.6 command-line runtime using Rails' existing Thor dependency;
 - validated human configuration and machine installation state;
 - deterministic plan, one-confirmation apply, operation journal, and resumption;
 - three-way managed-file refresh conflicts;
