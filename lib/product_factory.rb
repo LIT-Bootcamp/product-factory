@@ -1,0 +1,6 @@
+module ProductFactory
+  VERSION = "0.1.0"
+end
+
+require_relative "product_factory/errors"
+require_relative "product_factory/cli"
