@@ -108,7 +108,22 @@ module ProductFactory
       nil
     end
 
-    def current_hash(target_root:, path:) = target_hash(target_root, path)
+    def current_hash(target_root:, path:) = current_state(target_root:, path:)&.fetch(:hash)
+
+    def current_state(target_root:, path:)
+      root = validated_target_root(target_root)
+      destination = target_path(root, path)
+      return unless File.exist?(destination)
+
+      File.open(destination, File::RDONLY | File::NOFOLLOW) do |file|
+        stat = file.stat
+        raise ValidationError, "managed target is not a file: #{path}" unless stat.file?
+
+        { hash: Digest::SHA256.hexdigest(file.binmode.read), mode: stat.mode & 0o7777 }
+      end
+    rescue Errno::ELOOP
+      raise ValidationError, "managed target is a symlink: #{path}"
+    end
 
     private
 
@@ -221,18 +236,7 @@ module ProductFactory
     end
 
     def target_hash(target_root, path)
-      root = validated_target_root(target_root)
-      destination = target_path(root, path)
-      return nil unless File.exist?(destination)
-
-      stat = File.lstat(destination)
-      raise ValidationError, "managed target is not a file: #{path}" unless stat.file?
-
-      File.open(destination, File::RDONLY | File::NOFOLLOW) do |file|
-        Digest::SHA256.hexdigest(file.binmode.read)
-      end
-    rescue Errno::ELOOP
-      raise ValidationError, "managed target is a symlink: #{path}"
+      current_state(target_root:, path:)&.fetch(:hash)
     end
 
     def validated_target_root(target_root)

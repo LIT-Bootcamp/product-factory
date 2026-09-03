@@ -11,6 +11,14 @@ module ProductFactory
       .product-factory/schemas/
       .product-factory/spec/
     ].freeze
+    REQUIRED_DISTRIBUTION_FILES = %w[
+      lib/product_factory.rb
+      templates/config.yml
+      templates/project/bin/product-factory
+      templates/project/.product-factory/spec/runtime_spec.rb
+      templates/project/.product-factory/schemas/config-v1.yml
+      templates/project/.product-factory/schemas/installation-v1.yml
+    ].freeze
 
     attr_reader :plan_path
 
@@ -106,7 +114,7 @@ module ProductFactory
       return :success if plan.operations.empty?
 
       journal = Journal.new(path: journal_path, clock: @clock)
-      validate_preconditions!(plan, journal)
+      validate_preconditions!(plan)
       unless confirmed?(journal, plan.run_id)
         @output.puts("#{plan.operations.count} operations")
         @output.print("Apply this plan? [yes/no] ")
@@ -124,7 +132,9 @@ module ProductFactory
       library_root = File.join(@distribution_root, "lib")
       config_source = File.join(@distribution_root, "templates/config.yml")
       project_root = File.join(@distribution_root, "templates/project")
-      unless File.directory?(library_root) && File.file?(config_source) && File.directory?(project_root)
+      complete = File.directory?(library_root) && File.directory?(project_root) &&
+        REQUIRED_DISTRIBUTION_FILES.all? { |path| File.file?(File.join(@distribution_root, path)) }
+      unless complete
         raise ValidationError, "Product Factory distribution is incomplete"
       end
 
@@ -208,7 +218,7 @@ module ProductFactory
         ),
         "delete_file" => Executor::Handler.new(
           apply: ->(operation) { managed.apply(operation, target_root: @target_root) },
-          verify: ->(operation) { !File.exist?(File.join(@target_root, operation.target)) }
+          verify: ->(operation) { managed.current_state(target_root: @target_root, path: operation.target).nil? }
         ),
         "seed_config" => Executor::Handler.new(
           apply: ->(operation) { seed_config(operation) },
@@ -260,12 +270,10 @@ module ProductFactory
     end
 
     def verified_managed_file?(operation)
-      path = File.join(@target_root, operation.target)
-      return false unless File.exist?(path) && File.lstat(path).file?
-
       attributes = operation.attributes
-      File.binread(path) == attributes.fetch("content_base64").unpack1("m0") &&
-        (File.stat(path).mode & 0o7777) == attributes.fetch("mode")
+      expected_hash = Digest::SHA256.hexdigest(attributes.fetch("content_base64").unpack1("m0"))
+      state = ManagedFiles.new(sources: {}).current_state(target_root: @target_root, path: operation.target)
+      state && state.fetch(:hash) == expected_hash && state.fetch(:mode) == attributes.fetch("mode")
     rescue Errno::ENOENT, KeyError, ArgumentError
       false
     end
@@ -277,8 +285,7 @@ module ProductFactory
       return false unless state == operation.attributes
 
       state.fetch("managed_file_hashes").all? do |path, expected_hash|
-        target = File.join(@target_root, path)
-        File.lstat(target).file? && Digest::SHA256.file(target).hexdigest == expected_hash
+        ManagedFiles.new(sources: {}).current_hash(target_root: @target_root, path:) == expected_hash
       end
     rescue Errno::ENOENT, ValidationError, KeyError, TypeError
       false
@@ -410,8 +417,7 @@ module ProductFactory
       )
     end
 
-    def validate_preconditions!(plan, journal)
-      completed_ids = journal.completed_operation_ids(plan.run_id)
+    def validate_preconditions!(plan)
       operation_handlers = handlers
       files = ManagedFiles.new(sources: {})
 
@@ -419,7 +425,7 @@ module ProductFactory
         next unless %w[write_file delete_file].include?(operation.kind)
 
         handler = operation_handlers.fetch(operation.kind)
-        next if completed_ids.include?(operation.id) && handler.verify.call(operation)
+        next if handler.verify.call(operation)
 
         expected = operation.attributes.fetch("expected_local_hash")
         actual = files.current_hash(target_root: @target_root, path: operation.target)

@@ -135,6 +135,70 @@ RSpec.describe ProductFactory::Setup do
     end
   end
 
+  it "resumes a started managed operation that already reached its desired state" do
+    in_tmp_repo do |target|
+      setup = build_setup(target)
+      plan = setup.plan
+      operation = plan.operations.find { |item| item.kind == "write_file" }
+      ProductFactory::ManagedFiles.new(sources: {}).apply(operation, target_root: target)
+      journal = ProductFactory::Journal.new(
+        path: File.join(target, ".product-factory-journal.jsonl"),
+        clock: -> { Time.utc(2026, 9, 2) }
+      )
+      journal.append(event: "run_confirmed", run_id: plan.run_id)
+      journal.append(event: "operation_started", run_id: plan.run_id, operation_id: operation.id)
+
+      expect(setup.apply(plan)).to eq(:success)
+      expect(ProductFactory::Validator.new(root: target).call).to eq(true)
+    end
+  end
+
+  it "never verifies a completed managed operation through a symlinked ancestor" do
+    in_tmp_repo do |target|
+      setup = build_setup(target)
+      generated = setup.plan
+      operation = generated.operations.find do |item|
+        item.kind == "write_file" && item.target.start_with?(".product-factory/runtime/lib/")
+      end
+      outside = File.realpath(Dir.mktmpdir("product-factory-verified-"))
+      external_path = File.join(outside, operation.target.delete_prefix(".product-factory/runtime/"))
+      FileUtils.mkdir_p(File.dirname(external_path))
+      File.binwrite(external_path, operation.attributes.fetch("content_base64").unpack1("m0"))
+      File.chmod(operation.attributes.fetch("mode"), external_path)
+      FileUtils.mkdir_p(File.join(target, ".product-factory"))
+      File.symlink(outside, File.join(target, ".product-factory/runtime"))
+      state = ProductFactory::Installation.empty.with(
+        "managed_file_hashes" => {
+          operation.target => Digest::SHA256.file(external_path).hexdigest
+        },
+        "last_successful_setup_run" => generated.run_id
+      ).to_h
+      installation = ProductFactory::Operation.new(
+        kind: "write_installation",
+        target: ProductFactory::Installation::PATH,
+        attributes: state
+      )
+      plan = ProductFactory::Plan.new(
+        run_id: generated.run_id,
+        mode: "setup",
+        operations: [operation, installation],
+        target_root: target
+      )
+      journal = ProductFactory::Journal.new(
+        path: File.join(target, ".product-factory-journal.jsonl"),
+        clock: -> { Time.utc(2026, 9, 2) }
+      )
+      journal.append(event: "run_confirmed", run_id: plan.run_id)
+      journal.append(event: "operation_completed", run_id: plan.run_id, operation_id: operation.id)
+
+      expect { setup.apply(plan) }
+        .to raise_error(ProductFactory::ValidationError, /symlink/)
+      expect(File.binread(external_path)).to eq(operation.attributes.fetch("content_base64").unpack1("m0"))
+    ensure
+      FileUtils.remove_entry(outside) if outside && File.exist?(outside)
+    end
+  end
+
   def build_setup(target)
     described_class.new(
       distribution_root: File.expand_path("../..", __dir__),

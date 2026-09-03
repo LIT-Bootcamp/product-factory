@@ -88,7 +88,10 @@ RSpec.describe ProductFactory::Setup do
   it "fails closed when the installed distribution is incomplete" do
     in_factory do |distribution, target|
       install(distribution, target)
-      FileUtils.remove_entry(File.join(target, ".product-factory/runtime/templates"))
+      File.delete(File.join(
+        target,
+        ".product-factory/runtime/templates/project/.product-factory/schemas/config-v1.yml"
+      ))
       _output, error, status = Open3.capture3(
         "bundle", "exec", "ruby", File.join(target, "bin/product-factory"), "plan",
         chdir: target
