@@ -72,4 +72,25 @@ RSpec.describe ProductFactory::Plan do
     end
     expect { plan.conflicts.first["path"] << "changed" }.to raise_error(FrozenError)
   end
+
+  it "rejects malformed and tampered JSON" do
+    in_tmp_repo do |root|
+      malformed = File.join(root, "malformed.json")
+      write(root, "malformed.json", "{")
+
+      expect { described_class.load(malformed) }
+        .to raise_error(ProductFactory::ValidationError, /Invalid plan/)
+
+      operation = ProductFactory::Operation.new(kind: "delete_file", target: "a", attributes: {})
+      plan = described_class.new(run_id: "RUN-1", mode: "refresh", operations: [operation])
+      tampered = File.join(root, "tampered.json")
+      plan.write(tampered)
+      data = JSON.parse(File.read(tampered))
+      data.fetch("operations").first["target"] = "b"
+      File.write(tampered, JSON.generate(data))
+
+      expect { described_class.load(tampered) }
+        .to raise_error(ProductFactory::ValidationError, /operation ID/)
+    end
+  end
 end

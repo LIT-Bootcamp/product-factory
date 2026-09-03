@@ -69,7 +69,8 @@ RSpec.describe ProductFactory::CLI do
         run_id: "RUN-CONFLICT",
         mode: "refresh",
         operations: [],
-        conflicts: [{ "path" => "managed.rb" }]
+        conflicts: [{ "path" => "managed.rb" }],
+        target_root: target
       )
       path = File.join(Dir.tmpdir, "product-factory-conflict.json")
       plan.write(path)

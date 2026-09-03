@@ -27,6 +27,7 @@ module ProductFactory
     end
 
     def plan(resolutions: {})
+      validate_target!
       installation = Installation.load(@target_root)
       installed = File.exist?(File.join(@target_root, Installation::PATH))
       mode = installed ? "refresh" : "setup"
@@ -64,7 +65,8 @@ module ProductFactory
         run_id:,
         mode:,
         operations:,
-        conflicts: result.fetch(:conflicts)
+        conflicts: result.fetch(:conflicts),
+        target_root: @target_root
       ))
     end
 
@@ -89,6 +91,8 @@ module ProductFactory
     end
 
     def apply(plan)
+      validate_target!
+      validate_plan!(plan)
       raise ConflictError, "plan has conflicts" unless plan.applicable?
       return :success if plan.operations.empty?
 
@@ -98,7 +102,6 @@ module ProductFactory
         @output.print("Apply this plan? [yes/no] ")
         return :declined unless @input.gets&.chomp == "yes"
 
-        ensure_factory_directory
         journal.append(event: "run_confirmed", run_id: plan.run_id)
       end
 
@@ -161,7 +164,7 @@ module ProductFactory
       resolutions
     end
 
-    def journal_path = File.join(@target_root, ".product-factory/journal.jsonl")
+    def journal_path = File.join(@target_root, ".product-factory-journal.jsonl")
 
     def ensure_factory_directory
       directory = File.join(@target_root, ".product-factory")
@@ -264,6 +267,86 @@ module ProductFactory
 
       ensure_factory_directory
       Installation.new(operation.attributes).write(@target_root)
+    end
+
+    def validate_target!
+      root = File.lstat(@target_root)
+      raise ValidationError, "target root is a symlink" if root.symlink?
+      raise ValidationError, "target root is not a directory" unless root.directory?
+      raise ValidationError, "target root path contains a symlink" unless File.realpath(@target_root) == @target_root
+
+      factory = File.join(@target_root, ".product-factory")
+      if File.exist?(factory) || File.symlink?(factory)
+        stat = File.lstat(factory)
+        raise ValidationError, ".product-factory is a symlink" if stat.symlink?
+        raise ValidationError, ".product-factory is not a directory" unless stat.directory?
+      end
+
+      [Config::PATH, Installation::PATH].each do |relative_path|
+        path = File.join(@target_root, relative_path)
+        next unless File.exist?(path) || File.symlink?(path)
+
+        stat = File.lstat(path)
+        raise ValidationError, "#{relative_path} is a symlink" if stat.symlink?
+        raise ValidationError, "#{relative_path} is not a file" unless stat.file?
+      end
+    rescue Errno::ENOENT
+      raise ValidationError, "target root does not exist"
+    end
+
+    def validate_plan!(plan)
+      raise ValidationError, "plan target does not match setup target" unless plan.target_root == @target_root
+
+      installation = Installation.load(@target_root)
+      managed_targets = managed_sources.keys | installation.managed_file_hashes.keys
+      operations = plan.operations
+      seed_operations = operations.select { |operation| operation.kind == "seed_config" }
+      managed_operations = operations.select { |operation| %w[write_file delete_file].include?(operation.kind) }
+      installation_operations = operations.select { |operation| operation.kind == "write_installation" }
+
+      unless operations.length == seed_operations.length + managed_operations.length + installation_operations.length
+        raise ValidationError, "plan contains unsupported operation"
+      end
+      unless seed_operations.length <= 1 && seed_operations.all? { |operation| operation.target == Config::PATH }
+        raise ValidationError, "plan has invalid config seed"
+      end
+      unless managed_operations.map(&:target).uniq.length == managed_operations.length &&
+          managed_operations.all? { |operation| managed_targets.include?(operation.target) }
+        raise ValidationError, "plan has invalid managed target"
+      end
+
+      seed_operations.each { |operation| validate_seed_operation(operation) }
+      managed_operations.each { |operation| validate_managed_operation(operation) }
+      installation_operations.each do |operation|
+        unless operation.target == Installation::PATH && operation.attributes.is_a?(Hash)
+          raise ValidationError, "plan has invalid installation state"
+        end
+        Installation.new(operation.attributes)
+      end
+
+      return if operations.empty?
+
+      unless installation_operations.length == 1 && operations.last == installation_operations.first
+        raise ValidationError, "plan must end with installation state"
+      end
+      expected = seed_operations + managed_operations + installation_operations
+      raise ValidationError, "plan operation order is invalid" unless operations == expected
+    end
+
+    def validate_managed_operation(operation)
+      return if operation.kind == "delete_file" && operation.attributes == {}
+
+      attributes = operation.attributes
+      valid = operation.kind == "write_file" &&
+        attributes.is_a?(Hash) &&
+        attributes["content_base64"].is_a?(String) &&
+        attributes["mode"].is_a?(Integer) &&
+        attributes["mode"].between?(0, 0o7777)
+      raise ValidationError, "plan has invalid managed operation" unless valid
+
+      attributes.fetch("content_base64").unpack1("m0")
+    rescue ArgumentError
+      raise ValidationError, "plan has invalid managed operation"
     end
   end
 end
