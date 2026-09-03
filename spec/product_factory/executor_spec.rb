@@ -34,11 +34,72 @@ RSpec.describe ProductFactory::Executor do
   it "rejects malformed journal entries" do
     in_tmp_repo do |root|
       path = File.join(root, "journal.jsonl")
-      File.write(path, "{\"event\":\"operation_completed\"}\n{")
+      File.write(
+        path,
+        "{\"event\":\"operation_completed\",\"run_id\":\"RUN-1\",\"operation_id\":\"abc\",\"recorded_at\":\"2026-09-02T00:00:00Z\"}\n{"
+      )
       journal = ProductFactory::Journal.new(path:, clock: -> { Time.utc(2026, 9, 2) })
 
       expect { journal.events }
         .to raise_error(ProductFactory::ValidationError, "Invalid journal line 2")
+    end
+  end
+
+  it "rejects conflicted plans before invoking handlers" do
+    in_tmp_repo do |root|
+      journal = ProductFactory::Journal.new(path: File.join(root, "journal.jsonl"), clock: -> { Time.utc(2026, 9, 2) })
+      calls = []
+      handler = described_class::Handler.new(
+        apply: ->(operation) { calls << operation.target },
+        verify: ->(_operation) { true }
+      )
+      plan = ProductFactory::Plan.new(
+        run_id: "RUN-1",
+        mode: "setup",
+        operations: [ProductFactory::Operation.new(kind: "record", target: "a")],
+        conflicts: [{}]
+      )
+
+      expect { described_class.new(journal:, handlers: { "record" => handler }).apply(plan) }
+        .to raise_error(ProductFactory::ConflictError, "plan has conflicts")
+      expect(calls).to be_empty
+    end
+  end
+
+  it "validates every handler before invoking any handler" do
+    in_tmp_repo do |root|
+      journal = ProductFactory::Journal.new(path: File.join(root, "journal.jsonl"), clock: -> { Time.utc(2026, 9, 2) })
+      calls = []
+      plan = ProductFactory::Plan.new(
+        run_id: "RUN-1",
+        mode: "setup",
+        operations: [
+          ProductFactory::Operation.new(kind: "first", target: "a"),
+          ProductFactory::Operation.new(kind: "second", target: "b")
+        ]
+      )
+      handlers = {
+        "first" => described_class::Handler.new(apply: ->(operation) { calls << operation.target }, verify: ->(_operation) { true }),
+        "second" => described_class::Handler.new(apply: ->(_operation) {}, verify: nil)
+      }
+
+      expect { described_class.new(journal:, handlers:).apply(plan) }
+        .to raise_error(ProductFactory::ValidationError, "missing verifier for second")
+      expect(calls).to be_empty
+    end
+  end
+
+  it "rejects unsupported journal event forms on append and read" do
+    in_tmp_repo do |root|
+      path = File.join(root, "journal.jsonl")
+      journal = ProductFactory::Journal.new(path:, clock: -> { Time.utc(2026, 9, 2) })
+
+      expect { journal.append(event: "unknown", run_id: "RUN-1") }
+        .to raise_error(ProductFactory::ValidationError, "Invalid journal event")
+
+      File.write(path, "{\"event\":\"operation_completed\",\"run_id\":\"RUN-1\"}\n")
+      expect { journal.events }
+        .to raise_error(ProductFactory::ValidationError, "Invalid journal line 1")
     end
   end
 end

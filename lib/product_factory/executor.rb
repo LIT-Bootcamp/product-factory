@@ -8,14 +8,12 @@ module ProductFactory
     end
 
     def apply(plan)
+      raise ConflictError, "plan has conflicts" unless plan.applicable?
+
+      handlers = plan.operations.map { |operation| [operation, handler_for(operation)] }
       completed_ids = @journal.completed_operation_ids(plan.run_id)
 
-      plan.operations.each do |operation|
-        handler = @handlers[operation.kind]
-        raise ValidationError, "unknown operation handler: #{operation.kind}" unless handler
-        raise ValidationError, "missing verifier for #{operation.kind}" unless handler.verify.respond_to?(:call)
-        raise ValidationError, "invalid handler for #{operation.kind}" unless handler.apply.respond_to?(:call)
-
+      handlers.each do |operation, handler|
         next if completed_ids.include?(operation.id) && handler.verify.call(operation)
 
         execute(plan.run_id, operation, handler)
@@ -26,6 +24,19 @@ module ProductFactory
     end
 
     private
+
+    def handler_for(operation)
+      handler = @handlers[operation.kind]
+      raise ValidationError, "unknown operation handler: #{operation.kind}" unless handler
+      unless handler.respond_to?(:apply) && handler.apply.respond_to?(:call)
+        raise ValidationError, "invalid handler for #{operation.kind}"
+      end
+      unless handler.respond_to?(:verify) && handler.verify.respond_to?(:call)
+        raise ValidationError, "missing verifier for #{operation.kind}"
+      end
+
+      handler
+    end
 
     def execute(run_id, operation, handler)
       @journal.append(
