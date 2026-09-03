@@ -28,7 +28,7 @@ module ProductFactory
       0
     end
 
-    %w[doctor plan apply validate test].each do |command|
+    %w[doctor validate test].each do |command|
       desc command, "#{command.capitalize} the Product Factory environment"
       define_method(command) { raise UsageError, "#{command} is not installed" }
     end
@@ -51,10 +51,24 @@ module ProductFactory
     COMMANDS = %w[doctor plan apply validate test].freeze
 
     def self.start(argv, input: $stdin, output: $stdout, error: $stderr, cwd: Dir.pwd)
-      Application.start(argv, output:, error:, cwd:) || 0
+      case argv.first
+      when "plan"
+        Setup.from_cli(cwd:, input:, output:).plan_and_print(argv.drop(1))
+        0
+      when "apply"
+        raise UsageError, "apply requires PLAN_PATH" unless argv[1]
+
+        Setup.from_cli(cwd:, input:, output:).load_and_apply(argv[1])
+        0
+      else
+        Application.start(argv, output:, error:, cwd:) || 0
+      end
     rescue UsageError => exception
       error.puts(exception.message)
       64
+    rescue ConflictError => exception
+      error.puts(exception.message)
+      2
     rescue Error => exception
       error.puts(exception.message)
       1

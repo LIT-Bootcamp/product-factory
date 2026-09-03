@@ -19,7 +19,7 @@ module ProductFactory
     def append(event)
       record = event.transform_keys(&:to_s).merge("recorded_at" => @clock.call.utc.iso8601)
       validate_event!(record)
-      File.open(@path, File::WRONLY | File::CREAT | File::APPEND) do |file|
+      open_file(File::WRONLY | File::CREAT | File::APPEND) do |file|
         file.write(JSON.generate(record) + "\n")
         file.flush
         file.fsync
@@ -28,14 +28,16 @@ module ProductFactory
     end
 
     def events
-      return [] unless File.exist?(@path)
+      return [] unless File.exist?(@path) || File.symlink?(@path)
 
-      File.foreach(@path).with_index(1).map do |line, number|
-        event = JSON.parse(line)
-        validate_event!(event)
-        event
-      rescue JSON::ParserError, ValidationError
-        raise ValidationError, "Invalid journal line #{number}"
+      open_file(File::RDONLY) do |file|
+        file.each_line.with_index(1).map do |line, number|
+          event = JSON.parse(line)
+          validate_event!(event)
+          event
+        rescue JSON::ParserError, ValidationError
+          raise ValidationError, "Invalid journal line #{number}"
+        end
       end
     end
 
@@ -47,6 +49,14 @@ module ProductFactory
     end
 
     private
+
+    def open_file(flags, &)
+      raise ValidationError, "Journal path must not be a symlink" if File.symlink?(@path)
+
+      File.open(@path, flags | File::NOFOLLOW, &)
+    rescue Errno::ELOOP
+      raise ValidationError, "Journal path must not be a symlink"
+    end
 
     def validate_event!(event)
       raise ValidationError, "Invalid journal event" unless event.is_a?(Hash)

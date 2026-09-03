@@ -102,4 +102,20 @@ RSpec.describe ProductFactory::Executor do
         .to raise_error(ProductFactory::ValidationError, "Invalid journal line 1")
     end
   end
+
+  it "refuses to read or append through a journal symlink" do
+    in_tmp_repo do |root|
+      outside = File.join(root, "outside.jsonl")
+      path = File.join(root, "journal.jsonl")
+      File.write(outside, "untouched\n")
+      File.symlink(outside, path)
+      journal = ProductFactory::Journal.new(path:, clock: -> { Time.utc(2026, 9, 2) })
+
+      expect { journal.events }
+        .to raise_error(ProductFactory::ValidationError, "Journal path must not be a symlink")
+      expect { journal.append(event: "run_confirmed", run_id: "RUN-1") }
+        .to raise_error(ProductFactory::ValidationError, "Journal path must not be a symlink")
+      expect(File.read(outside)).to eq("untouched\n")
+    end
+  end
 end
