@@ -181,8 +181,7 @@ module ProductFactory
         raise ValidationError, "managed source must be absolute: #{path}"
       end
 
-      stat = File.lstat(path)
-      raise ValidationError, "managed source is a symlink: #{path}" if stat.symlink?
+      stat = source_stat(path)
       raise ValidationError, "managed source is not a file: #{path}" unless stat.file?
 
       File.open(path, File::RDONLY | File::NOFOLLOW) do |file|
@@ -193,6 +192,19 @@ module ProductFactory
       end
     rescue Errno::ENOENT, Errno::ELOOP, Errno::EACCES => error
       raise ValidationError, "cannot read managed source #{path}: #{error.message}"
+    end
+
+    def source_stat(path)
+      current = File::SEPARATOR
+      stat = nil
+
+      Pathname.new(path).each_filename do |part|
+        current = File.join(current, part)
+        stat = File.lstat(current)
+        raise ValidationError, "managed source path contains a symlink: #{path}" if stat.symlink?
+      end
+
+      stat
     end
 
     def target_hash(target_root, path)
@@ -255,12 +267,16 @@ module ProductFactory
     end
 
     def apply_write(operation, root, destination)
-      encoded = operation.attributes.fetch("content_base64")
-      mode = operation.attributes.fetch("mode")
-      unless mode.is_a?(Integer) && mode.between?(0, 0o7777)
-        raise ValidationError, "invalid mode for #{operation.target}"
+      attributes = operation.attributes
+      unless attributes.is_a?(Hash) &&
+          attributes["content_base64"].is_a?(String) &&
+          attributes["mode"].is_a?(Integer) &&
+          attributes["mode"].between?(0, 0o7777)
+        raise ValidationError, "invalid write operation for #{operation.target}"
       end
 
+      encoded = attributes.fetch("content_base64")
+      mode = attributes.fetch("mode")
       bytes = encoded.unpack1("m0")
       ensure_destination_directory(root, File.dirname(destination))
       destination = target_path(root, operation.target)

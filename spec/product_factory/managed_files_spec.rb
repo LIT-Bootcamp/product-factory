@@ -173,7 +173,7 @@ RSpec.describe ProductFactory::ManagedFiles do
           File.symlink(File.join(source, "real.txt"), File.join(source, "linked.txt"))
           linked_source = described_class.new(sources: { "a.txt" => File.join(source, "linked.txt") })
           expect { linked_source.plan(target_root: target, installed_hashes: {}) }
-            .to raise_error(ProductFactory::ValidationError, /source is a symlink/)
+            .to raise_error(ProductFactory::ValidationError, /source path contains a symlink/)
 
           files = described_class.new(sources: { "a.txt" => File.join(source, "real.txt") })
           operation = files.plan(target_root: target, installed_hashes: {}).fetch(:operations).first
@@ -196,6 +196,44 @@ RSpec.describe ProductFactory::ManagedFiles do
           expect { nested_files.apply(nested_operation, target_root: target) }
             .to raise_error(ProductFactory::ValidationError, /target is a symlink/)
           expect(File.exist?(File.join(outside, "a.txt"))).to eq(false)
+        end
+      end
+    end
+  end
+
+  it "rejects malformed write-operation attributes with a validation error" do
+    in_tmp_repo do |target|
+      [
+        nil,
+        [],
+        { "content_base64" => 123, "mode" => 0o644 }
+      ].each do |attributes|
+        operation = ProductFactory::Operation.new(
+          kind: "write_file",
+          target: "a.txt",
+          attributes: attributes
+        )
+
+        expect { described_class.new(sources: {}).apply(operation, target_root: target) }
+          .to raise_error(ProductFactory::ValidationError)
+      end
+    end
+  end
+
+  it "rejects a source file reached through a symlinked parent directory" do
+    in_tmp_repo do |source|
+      in_tmp_repo do |target|
+        in_tmp_repo do |outside|
+          write(outside, "nested/real.txt", "upstream\n")
+          File.symlink(outside, File.join(source, "linked-parent"))
+          files = described_class.new(
+            sources: {
+              "a.txt" => File.join(source, "linked-parent", "nested", "real.txt")
+            }
+          )
+
+          expect { files.plan(target_root: target, installed_hashes: {}) }
+            .to raise_error(ProductFactory::ValidationError, /source path contains a symlink/)
         end
       end
     end

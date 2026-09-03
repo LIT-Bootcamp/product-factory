@@ -5,7 +5,7 @@ require_relative "../lib/product_factory"
 
 module SpecHelpers
   def in_tmp_repo
-    Dir.mktmpdir("product-factory-test") { |root| yield root }
+    Dir.mktmpdir("product-factory-test") { |root| yield File.realpath(root) }
   end
 
   def write(root, relative_path, content)
