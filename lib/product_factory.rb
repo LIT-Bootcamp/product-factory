@@ -3,4 +3,5 @@ module ProductFactory
 end
 
 require_relative "product_factory/errors"
+require_relative "product_factory/config"
 require_relative "product_factory/cli"

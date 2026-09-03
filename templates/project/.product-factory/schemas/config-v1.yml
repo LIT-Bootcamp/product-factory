@@ -1,0 +1,120 @@
+schema_version:
+  type: integer
+  required: true
+  fixed_default: 1
+product.name:
+  type: string
+  required: true
+  fixed_default: Example Product
+product.context_page:
+  type: string
+  required: true
+  fixed_default: Product-Context
+product.inventory_page:
+  type: string
+  required: true
+  fixed_default: Product-Inventory
+product.max_active_ideas:
+  type: integer
+  required: false
+  fixed_default: 10
+github.organization:
+  type: string
+  required: true
+  fixed_default: example-org
+github.repository:
+  type: string
+  required: true
+  fixed_default: example-repo
+github.project_title:
+  type: string
+  required: true
+  fixed_default: Example Product Factory
+research.freshness_days:
+  type: integer
+  required: true
+  fixed_default: 30
+workflow.clarification_rounds:
+  type: integer
+  required: true
+  fixed_default: 3
+workflow.claim_lease_minutes:
+  type: integer
+  required: true
+  fixed_default: 60
+workflow.max_ticket_human_hours:
+  type: integer
+  required: true
+  fixed_default: 16
+agents.ideator.model:
+  type: string
+  required: false
+  fixed_default: configured-model
+agents.ideator.reasoning:
+  type: string
+  required: false
+  fixed_default: high
+agents.business_analyst.model:
+  type: string
+  required: false
+  fixed_default: configured-model
+agents.business_analyst.reasoning:
+  type: string
+  required: false
+  fixed_default: high
+agents.technical_lead.model:
+  type: string
+  required: false
+  fixed_default: configured-model
+agents.technical_lead.reasoning:
+  type: string
+  required: false
+  fixed_default: high
+agents.manual_qa.model:
+  type: string
+  required: false
+  fixed_default: configured-model
+agents.manual_qa.reasoning:
+  type: string
+  required: false
+  fixed_default: high
+qa.local_url:
+  type: string
+  required: false
+  fixed_default: http://127.0.0.1:3000
+qa.start_command:
+  type: string
+  required: false
+  fixed_default: bin/dev
+qa.setup_command:
+  type: string
+  required: false
+  fixed_default: bin/rails db:prepare
+qa.staging_url:
+  type:
+    - string
+    - "null"
+  required: false
+  fixed_default:
+qa.credential_env.student:
+  type: string
+  required: false
+  fixed_default: FACTORY_STUDENT_CREDENTIALS
+qa.credential_env.mentor:
+  type: string
+  required: false
+  fixed_default: FACTORY_MENTOR_CREDENTIALS
+qa.credential_env.admin:
+  type: string
+  required: false
+  fixed_default: FACTORY_ADMIN_CREDENTIALS
+knowledge.paths:
+  type: array[string]
+  required: false
+  fixed_default:
+    - AGENTS.md
+    - README.md
+    - docs/architecture
+    - Gemfile.lock
+    - db/schema.rb
+    - .github/workflows
