@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-require "json"
-require "time"
-
 module ProductFactory
   class Journal
     EVENT_FIELDS = {

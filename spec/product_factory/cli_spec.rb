@@ -32,8 +32,7 @@ RSpec.describe ProductFactory::CLI do
     it "runs installed tests with argument arrays and returns their status" do
       in_tmp_repo do |root|
         write(root, ProductFactory::Installation::PATH, "schema_version: 1\n")
-        validator = instance_double(ProductFactory::Validator, call: true)
-        allow(ProductFactory::Validator).to receive(:new).and_return(validator)
+        allow(ProductFactory::Validator).to receive(:call).and_return(true)
         process_status = instance_double(Process::Status, exitstatus: 3)
         allow(Open3).to receive(:capture3)
           .and_return(["out", "err", process_status])
@@ -43,7 +42,7 @@ RSpec.describe ProductFactory::CLI do
         expect(described_class.start(["test"], cwd: root, output:, error:)).to eq(3)
         expect(output.string).to eq("out")
         expect(error.string).to eq("err")
-        expect(ProductFactory::Validator).to have_received(:new).with(root: root)
+        expect(ProductFactory::Validator).to have_received(:call).with(root: root)
         expect(Open3).to have_received(:capture3)
           .with("bundle", "exec", "rspec", ".product-factory/spec/runtime_spec.rb", chdir: root)
       end

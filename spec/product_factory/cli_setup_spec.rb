@@ -44,7 +44,7 @@ RSpec.describe ProductFactory::CLI do
     end
   end
 
-  it "preserves a config created after planning and stops before managed writes" do
+  it "preserves a config created after planning and stops before writing factory files" do
     in_tmp_repo do |target|
       plan_output = StringIO.new
       described_class.start(["plan"], cwd: target, output: plan_output)

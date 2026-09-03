@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "thor"
-
 module ProductFactory
   class StreamShell < Thor::Shell::Basic
     def initialize(output, error)

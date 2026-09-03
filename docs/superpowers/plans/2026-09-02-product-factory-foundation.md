@@ -4,7 +4,7 @@
 
 **Goal:** Build the deterministic Ruby runtime and a safe, resumable local setup/refresh flow that later GitHub and agent slices can extend without changing its contracts.
 
-**Architecture:** A small Ruby CLI loads validated YAML, derives immutable operations, writes through an append-only JSONL journal, and applies managed files atomically. Planning is pure and mutation-free; apply consumes the saved plan after one confirmation, verifies each result, and resumes completed operations by stable ID.
+**Architecture:** A small Ruby CLI loads validated YAML, derives immutable operations, writes through an append-only JSONL journal, and synchronizes Product Factory files atomically. Planning is pure and mutation-free; apply consumes the saved plan after one confirmation, verifies each result, and resumes completed operations by stable ID.
 
 **Tech Stack:** Ruby 4.0.6, Thor 1.5.0, Ruby standard library (`yaml`, `json`, `digest`, `fileutils`, `tempfile`, `open3`, `time`), RSpec, Rake
 
@@ -45,7 +45,7 @@ lib/product_factory/installation.rb          Machine state loading and atomic pe
 lib/product_factory/operation.rb             Immutable operation value object
 lib/product_factory/plan.rb                  Immutable plan value object and JSON format
 lib/product_factory/journal.rb                Append-only run event store
-lib/product_factory/managed_files.rb          Three-way local file planner and atomic writer
+lib/product_factory/file_sync/                Three-way file planning and atomic writes
 lib/product_factory/setup.rb                  Detect, plan, confirm, apply, verify orchestration
 lib/product_factory/doctor.rb                 Environment checks
 lib/product_factory/errors.rb                 Expected error classes
@@ -410,7 +410,7 @@ require_relative "product_factory/config"
 
 - [ ] **Step 4: Add the canonical template and schema description**
 
-Copy the exact approved YAML shape from design section 5 into `templates/config.yml`, using neutral sample values `Example Product`, `example-org`, and `example-repo`. This is a seed, not a managed file: setup writes it only when target configuration is absent, and later human edits are validated but never hash-restored. Store a documentation-only field contract in `config-v1.yml` with each path, type, required flag, and fixed default. `Config` remains the executable validator; no schema gem is introduced.
+Copy the exact approved YAML shape from design section 5 into `templates/config.yml`, using neutral sample values `Example Product`, `example-org`, and `example-repo`. This is a human-owned seed, not a factory file: setup writes it only when target configuration is absent, and later human edits are validated but never hash-restored. Store a documentation-only field contract in `config-v1.yml` with each path, type, required flag, and fixed default. `Config` remains the executable validator; no schema gem is introduced.
 
 - [ ] **Step 5: Run focused and full tests**
 
@@ -439,7 +439,7 @@ git commit -m "Validate Product Factory configuration"
 - Produces: `Installation.load(root) -> Installation`
 - Produces: `Installation.empty -> Installation`
 - Produces: `Installation#write(root) -> void`
-- Produces: `Installation#managed_file_hashes -> Hash<String,String>`
+- Produces: `Installation#factory_file_hashes -> Hash<String,String>`
 - Produces: `Installation#with(attributes) -> Installation`
 
 - [ ] **Step 1: Write the failing round-trip and atomicity tests**
@@ -452,14 +452,14 @@ RSpec.describe ProductFactory::Installation do
       installation = described_class.load(root)
       installation = installation.with(
         "factory_version" => "0.1.0",
-        "managed_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "abc" }
+        "factory_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "abc" }
       )
 
       installation.write(root)
       loaded = described_class.load(root)
 
       expect(loaded.factory_version).to eq("0.1.0")
-      expect(loaded.managed_file_hashes).to eq({ ".product-factory/runtime/lib/product_factory.rb" => "abc" })
+      expect(loaded.factory_file_hashes).to eq({ ".product-factory/runtime/lib/product_factory.rb" => "abc" })
       expect(File).not_to exist(File.join(root, ".product-factory/installation.yml.tmp"))
     end
   end
@@ -489,7 +489,7 @@ module ProductFactory
       "installed_at" => nil,
       "installed_by" => nil,
       "github_resource_ids" => {},
-      "managed_file_hashes" => {},
+      "factory_file_hashes" => {},
       "last_successful_setup_run" => nil,
       "pending_operations" => []
     }.freeze
@@ -511,7 +511,7 @@ module ProductFactory
     end
 
     def factory_version = @data["factory_version"]
-    def managed_file_hashes = @data["managed_file_hashes"].dup
+    def factory_file_hashes = @data["factory_file_hashes"].dup
     def pending_operations = @data["pending_operations"].dup
     def to_h = @data.dup
     def with(attributes) = self.class.new(@data.merge(attributes.transform_keys(&:to_s)))
@@ -673,24 +673,23 @@ git commit -m "Add deterministic setup plans"
 
 ---
 
-### Task 5: Three-way managed-file planning
+### Task 5: Three-way factory-file planning
 
 **Files:**
-- Create: `lib/product_factory/managed_files.rb`
+- Create: `lib/product_factory/file_sync.rb`
 - Modify: `lib/product_factory.rb`
-- Test: `spec/product_factory/managed_files_spec.rb`
+- Test: `spec/product_factory/file_sync/planner_spec.rb`
 
 **Interfaces:**
-- Produces: `ManagedFiles.new(sources:)`, where sources map target-relative paths to absolute source paths
-- Produces: `ManagedFiles#plan(target_root:, installed_hashes:, resolutions: {}) -> Hash`
+- Produces: `FileSync::Planner.call(sources:, target_root:, installed_hashes:, resolutions: {}) -> Hash`
 - Result keys: `operations`, `conflicts`, `next_hashes`
-- Produces: `ManagedFiles#apply(operation, target_root:) -> void`
+- Produces: `FileSync::Target#apply(operation) -> void`
 
 - [ ] **Step 1: Write a four-case truth-table test**
 
 ```ruby
-# spec/product_factory/managed_files_spec.rb
-RSpec.describe ProductFactory::ManagedFiles do
+# spec/product_factory/file_sync/planner_spec.rb
+RSpec.describe ProductFactory::FileSync::Planner do
   it "implements the three-way refresh truth table" do
     in_tmp_repo do |source|
       in_tmp_repo do |target|
@@ -720,13 +719,13 @@ end
 
 - [ ] **Step 2: Run the focused test and confirm RED**
 
-Run: `bundle exec rspec spec/product_factory/managed_files_spec.rb`
+Run: `bundle exec rspec spec/product_factory/file_sync/planner_spec.rb`
 
-Expected: FAIL because `ManagedFiles` is undefined.
+Expected: FAIL because `FileSync::Planner` is undefined.
 
 - [ ] **Step 3: Implement hashing and the exact decision table**
 
-`ManagedFiles#plan` must enumerate the target-relative keys of `sources` in sorted order and compare:
+`FileSync::Planner` must enumerate the target-relative keys of `sources` in sorted order and compare:
 
 ```ruby
 installed = installed_hashes[path]
@@ -752,19 +751,19 @@ For a conflict, accept only `keep_local`, `take_upstream`, or `manual_merge`. `m
 
 Write operations contain base64-encoded bytes and mode, so apply does not depend on changing source files. Use `Tempfile.create` in the destination directory, `flush`, `fsync`, `chmod`, and `rename` for atomic replacement. Reject symlinks in both source and target.
 
-- [ ] **Step 4: Add deletion behavior only for previously managed files**
+- [ ] **Step 4: Add deletion behavior only for previously installed factory files**
 
 Add tests and implementation for an upstream removal:
 
 - unchanged previously managed local file -> `delete_file` operation;
-- locally changed previously managed file -> conflict;
+- locally changed factory file -> conflict;
 - never-managed local file -> untouched.
 
 Deletion is limited to the exact relative file path recorded in `installed_hashes`; directories are removed only when empty.
 
 - [ ] **Step 5: Run focused and full tests**
 
-Run: `bundle exec rspec spec/product_factory/managed_files_spec.rb && bundle exec rake`
+Run: `bundle exec rspec spec/product_factory/file_sync/planner_spec.rb && bundle exec rake`
 
 Expected: PASS.
 
@@ -772,7 +771,7 @@ Expected: PASS.
 
 ```bash
 git add lib spec
-git commit -m "Plan safe managed-file refreshes"
+git commit -m "Plan safe factory-file refreshes"
 ```
 
 ---
@@ -922,7 +921,7 @@ Expected: FAIL because `Setup` is undefined.
 
 - [ ] **Step 3: Implement setup detection and plan persistence**
 
-Mode is `setup` when `.product-factory/installation.yml` is absent and `refresh` otherwise. Build the managed source map deterministically:
+Mode is `setup` when `.product-factory/installation.yml` is absent and `refresh` otherwise. Build the factory source map deterministically:
 
 ```ruby
 sources = {}
@@ -938,7 +937,7 @@ Dir.glob(File.join(distribution_root, "templates/project/**/*"), File::FNM_DOTMA
 end
 ```
 
-When target `.product-factory/config.yml` is missing, add one `seed_config` operation containing the rendered `templates/config.yml`; do not include it in `managed_file_hashes`. When it exists, load and preserve it. Plans are saved outside the target repository at `Dir.tmpdir/product-factory-<run-id>.json`, so planning does not mutate the target.
+When target `.product-factory/config.yml` is missing, add one `seed_config` operation containing the rendered `templates/config.yml`; do not include it in `factory_file_hashes`. When it exists, load and preserve it. Plans are saved outside the target repository at `Dir.tmpdir/product-factory-<run-id>.json`, so planning does not mutate the target.
 
 Create the installed executable:
 
@@ -964,7 +963,7 @@ RSpec.describe "installed Product Factory runtime" do
 
     expect(ProductFactory::Config.load(root)).to be_a(ProductFactory::Config)
     expect(ProductFactory::Installation.load(root)).to be_a(ProductFactory::Installation)
-    expect(ProductFactory::Validator.new(root: root).call).to eq(true)
+    expect(ProductFactory::Validator.call(root: root)).to eq(true)
   end
 end
 ```
@@ -1034,16 +1033,16 @@ git commit -m "Add local setup and refresh flow"
 - Test: `spec/product_factory/validator_spec.rb`
 
 **Interfaces:**
-- Produces: `Doctor.new(root:, command_runner:).call -> Array<Check>`
+- Produces: `Doctor::Runner.call(root:, command_runner:) -> Array<Check>`
 - `Check = Data.define(:name, :status, :message)` where status is `:pass`, `:warn`, or `:fail`
-- Produces: `Validator.new(root:).call -> true`, raises `ValidationError` on failure
+- Produces: `Validator.call(root:) -> true`, raises `ValidationError` on failure
 - CLI commands: `doctor`, `validate`, `test`
 
 - [ ] **Step 1: Write failing environment and installation validation tests**
 
 ```ruby
 # spec/product_factory/doctor_spec.rb
-RSpec.describe ProductFactory::Doctor do
+RSpec.describe ProductFactory::Doctor::Runner do
   it "reports missing gh without running setup" do
     runner = ->(*command) { command == ["ruby", "--version"] ? [true, "ruby 3.3.0"] : [false, "missing"] }
     checks = described_class.new(root: Dir.pwd, command_runner: runner).call
@@ -1057,13 +1056,13 @@ end
 ```ruby
 # spec/product_factory/validator_spec.rb
 RSpec.describe ProductFactory::Validator do
-  it "rejects a modified managed file" do
+  it "rejects a modified factory file" do
     in_tmp_repo do |root|
       config_template = File.expand_path("../../templates/config.yml", __dir__)
       write(root, ".product-factory/config.yml", File.read(config_template))
       write(root, ".product-factory/runtime/lib/product_factory.rb", "changed\n")
       ProductFactory::Installation.empty.with(
-        "managed_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "not-the-current-hash" }
+        "factory_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "not-the-current-hash" }
       ).write(root)
 
       expect { described_class.new(root: root).call }
@@ -1096,7 +1095,7 @@ Validator checks:
 
 - configuration validity;
 - installation schema validity;
-- every installed managed file exists and matches its recorded SHA-256; human-owned `.product-factory/config.yml` is validated semantically and is not hash-compared;
+- every installed factory file exists and matches its recorded SHA-256; human-owned `.product-factory/config.yml` is validated semantically and is not hash-compared;
 - pending operations are empty after a successful run;
 - the journal parses completely;
 - no credential environment-variable value appears in config or installation state.

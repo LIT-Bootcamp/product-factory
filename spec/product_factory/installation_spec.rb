@@ -6,14 +6,14 @@ RSpec.describe ProductFactory::Installation do
       installation = described_class.load(root)
       installation = installation.with(
         "factory_version" => "0.1.0",
-        "managed_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "abc" }
+        "factory_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "abc" }
       )
 
       installation.write(root)
       loaded = described_class.load(root)
 
       expect(loaded.factory_version).to eq("0.1.0")
-      expect(loaded.managed_file_hashes).to eq({ ".product-factory/runtime/lib/product_factory.rb" => "abc" })
+      expect(loaded.factory_file_hashes).to eq({ ".product-factory/runtime/lib/product_factory.rb" => "abc" })
       expect(File).not_to exist(File.join(root, ".product-factory/installation.yml.tmp"))
     end
   end
@@ -47,15 +47,15 @@ RSpec.describe ProductFactory::Installation do
 
   it "does not expose nested state for mutation" do
     installation = described_class.empty.with(
-      "managed_file_hashes" => { "managed.rb" => "abc" },
+      "factory_file_hashes" => { "factory.rb" => "abc" },
       "pending_operations" => [{ "id" => "operation-1" }]
     )
 
     exposed = installation.to_h
-    exposed.fetch("managed_file_hashes")["managed.rb"] = "changed"
+    exposed.fetch("factory_file_hashes")["factory.rb"] = "changed"
     exposed.fetch("pending_operations").first["id"] = "changed"
 
-    expect(installation.managed_file_hashes).to eq({ "managed.rb" => "abc" })
+    expect(installation.factory_file_hashes).to eq({ "factory.rb" => "abc" })
     expect(installation.pending_operations).to eq([{ "id" => "operation-1" }])
   end
 

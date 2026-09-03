@@ -15,7 +15,7 @@ module ProductFactory
       @root = File.expand_path(root)
     end
 
-    def managed_sources
+    def factory_sources
       validate!
       library_sources.merge(config_source).merge(project_sources)
     end

@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "json"
-
 module ProductFactory
   class Plan
     attr_reader :run_id, :mode, :operations, :conflicts, :target_root

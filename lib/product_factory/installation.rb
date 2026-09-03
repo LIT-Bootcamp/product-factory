@@ -1,9 +1,5 @@
 # frozen_string_literal: true
 
-require "fileutils"
-require "tempfile"
-require "yaml"
-
 module ProductFactory
   class Installation
     PATH = ".product-factory/installation.yml"
@@ -13,7 +9,7 @@ module ProductFactory
       "installed_at" => nil,
       "installed_by" => nil,
       "github_resource_ids" => {},
-      "managed_file_hashes" => {},
+      "factory_file_hashes" => {},
       "last_successful_setup_run" => nil,
       "pending_operations" => []
     }.freeze
@@ -37,7 +33,7 @@ module ProductFactory
     end
 
     def factory_version = @data["factory_version"]
-    def managed_file_hashes = mutable_copy(@data["managed_file_hashes"])
+    def factory_file_hashes = mutable_copy(@data["factory_file_hashes"])
     def pending_operations = mutable_copy(@data["pending_operations"])
     def to_h = mutable_copy(@data)
     def with(attributes) = self.class.new(@data.merge(attributes.transform_keys(&:to_s)))

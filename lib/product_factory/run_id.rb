@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "securerandom"
-
 module ProductFactory
   class RunId
     def self.generate(clock:, random: SecureRandom)

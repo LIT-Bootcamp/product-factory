@@ -15,7 +15,7 @@ Delivers:
 - Ruby 4.0.6 command-line runtime using Rails' existing Thor dependency;
 - validated human configuration and machine installation state;
 - deterministic plan, one-confirmation apply, operation journal, and resumption;
-- three-way managed-file refresh conflicts;
+- three-way factory-file refresh conflicts;
 - `doctor`, `plan`, `apply`, `validate`, and `test` commands;
 - no GitHub mutations yet.
 

@@ -58,7 +58,7 @@ RSpec.describe ProductFactory::Setup do
     in_factory do |distribution, target|
       install(distribution, target)
 
-      expect(ProductFactory::Validator.new(root: target).call).to be(true)
+      expect(ProductFactory::Validator.call(root: target)).to be(true)
     end
   end
 
@@ -147,7 +147,7 @@ RSpec.describe ProductFactory::Setup do
     end
   end
 
-  it "blocks every operation when one managed file conflicts" do
+  it "blocks every operation when one factory file conflicts" do
     in_factory do |distribution, target|
       install(distribution, target)
       upstream_only = schema_path(File.join(distribution, "templates/project"))
@@ -224,7 +224,7 @@ RSpec.describe ProductFactory::Setup do
       install(distribution, target)
       File.open(File.join(target, ".product-factory-journal.jsonl"), "a") { |file| file.write("{") }
 
-      expect { ProductFactory::Validator.new(root: target).call }
+      expect { ProductFactory::Validator.call(root: target) }
         .to raise_error(ProductFactory::ValidationError, /Invalid journal line \d+/)
     end
   end
@@ -250,7 +250,7 @@ RSpec.describe ProductFactory::Setup do
       File.symlink(outside, destination)
 
       expect { setup_for(distribution, target).plan }
-        .to raise_error(ProductFactory::ValidationError, /managed target is a symlink/)
+        .to raise_error(ProductFactory::ValidationError, /factory target is a symlink/)
     end
   end
 

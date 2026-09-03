@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "open3"
-
 module ProductFactory
   class CLI
     COMMANDS = %w[doctor plan apply validate test].freeze
@@ -61,13 +59,13 @@ module ProductFactory
     end
 
     def doctor
-      checks = Doctor.new(root: @cwd).call
+      checks = Doctor::Runner.call(root: @cwd)
       checks.each { |check| @output.puts("#{check.name}: #{check.status} #{check.message}") }
       checks.any? { |check| check.status == :fail } ? 1 : 0
     end
 
     def validate
-      Validator.new(root: @cwd).call
+      Validator.call(root: @cwd)
       @output.puts("Product Factory installation is valid")
       0
     end
@@ -76,7 +74,7 @@ module ProductFactory
       command = %w[bundle exec rspec]
       installation_path = File.join(@cwd, Installation::PATH)
       if File.exist?(installation_path) || File.symlink?(installation_path)
-        Validator.new(root: @cwd).call
+        Validator.call(root: @cwd)
         command << ".product-factory/spec/runtime_spec.rb"
       end
       standard_output, standard_error, status = Open3.capture3(*command, chdir: @cwd)

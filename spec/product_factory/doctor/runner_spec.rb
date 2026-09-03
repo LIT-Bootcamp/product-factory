@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe ProductFactory::Doctor do
+RSpec.describe ProductFactory::Doctor::Runner do
   it "reports missing gh without running setup" do
     commands = []
     runner = lambda do |*command|
@@ -13,7 +13,8 @@ RSpec.describe ProductFactory::Doctor do
       else [false, "unexpected command"]
       end
     end
-    checks = described_class.new(root: Dir.pwd, command_runner: runner).call
+
+    checks = described_class.call(root: Dir.pwd, command_runner: runner)
 
     expect(checks.find { |check| check.name == "ruby" }.status).to eq(:pass)
     expect(checks.find { |check| check.name == "gh" }.status).to eq(:fail)
@@ -24,7 +25,7 @@ RSpec.describe ProductFactory::Doctor do
   it "requires Ruby 4.0.6 exactly" do
     runner = ->(*command) { [true, command.first == "ruby" ? "ruby 4.0.7" : "true"] }
 
-    check = described_class.new(root: Dir.pwd, command_runner: runner).call
+    check = described_class.call(root: Dir.pwd, command_runner: runner)
                            .find { |result| result.name == "ruby" }
 
     expect(check.status).to eq(:fail)
@@ -32,7 +33,7 @@ RSpec.describe ProductFactory::Doctor do
 
   it "does not accept knowledge reached through a symlink" do
     in_tmp_repo do |root|
-      config = YAML.safe_load_file(File.expand_path("../../templates/config.yml", __dir__))
+      config = YAML.safe_load_file(File.expand_path("../../../templates/config.yml", __dir__))
       config.fetch("knowledge")["paths"] = ["docs/external"]
       write(root, ProductFactory::Config::PATH, YAML.dump(config))
       ProductFactory::Installation.empty.write(root)
@@ -42,7 +43,7 @@ RSpec.describe ProductFactory::Doctor do
       File.symlink(File.join(outside, "external"), File.join(root, "docs/external"))
       runner = ->(*command) { [true, command.first == "ruby" ? "ruby 4.0.6" : "true"] }
 
-      check = described_class.new(root:, command_runner: runner).call
+      check = described_class.call(root:, command_runner: runner)
                              .find { |result| result.name == "knowledge" }
 
       expect(check.status).to eq(:fail)

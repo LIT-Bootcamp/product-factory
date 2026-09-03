@@ -28,7 +28,7 @@ RSpec.describe ProductFactory::Setup do
 
       installation = ProductFactory::Installation.load(target)
       expect(installation.to_h.fetch("last_successful_setup_run")).to eq(first.run_id)
-      expect(installation.managed_file_hashes).not_to have_key(ProductFactory::Config::PATH)
+      expect(installation.factory_file_hashes).not_to have_key(ProductFactory::Config::PATH)
 
       second = setup.plan
       expect(second.mode).to eq("refresh")
@@ -51,7 +51,7 @@ RSpec.describe ProductFactory::Setup do
     end
   end
 
-  it "rejects an unowned managed target before asking or writing a journal" do
+  it "rejects an unowned factory target before asking or writing a journal" do
     in_tmp_repo do |target|
       setup = build_setup(target)
       operation = ProductFactory::Operation.new(kind: "delete_file", target: ".git/config", attributes: {})
@@ -68,7 +68,7 @@ RSpec.describe ProductFactory::Setup do
       )
 
       expect { setup.apply(plan) }
-        .to raise_error(ProductFactory::ValidationError, /invalid managed target/)
+        .to raise_error(ProductFactory::ValidationError, /invalid factory target/)
       expect(Dir.children(target)).to be_empty
     end
   end
@@ -77,11 +77,11 @@ RSpec.describe ProductFactory::Setup do
     in_tmp_repo do |target|
       write(target, ProductFactory::Config::PATH, File.read(File.expand_path("../../templates/config.yml", __dir__)))
       ProductFactory::Installation.empty.with(
-        "managed_file_hashes" => { ".git/config" => "a" * 64 }
+        "factory_file_hashes" => { ".git/config" => "a" * 64 }
       ).write(target)
 
       expect { build_setup(target).plan }
-        .to raise_error(ProductFactory::ValidationError, /invalid managed file hash/)
+        .to raise_error(ProductFactory::ValidationError, /invalid factory file hash/)
       expect(File).not_to exist(File.join(target, ".product-factory-journal.jsonl"))
     end
   end
@@ -114,16 +114,16 @@ RSpec.describe ProductFactory::Setup do
       write(target, ProductFactory::Config::PATH, seed.attributes.fetch("content_base64").unpack1("m0"))
 
       expect(setup.apply(plan)).to eq(:success)
-      expect(ProductFactory::Validator.new(root: target).call).to be(true)
+      expect(ProductFactory::Validator.call(root: target)).to be(true)
     end
   end
 
-  it "allows a verified completed managed operation during resume" do
+  it "allows a verified completed file operation during resume" do
     in_tmp_repo do |target|
       setup = build_setup(target)
       plan = setup.plan
       operation = plan.operations.find { |item| item.kind == "write_file" }
-      ProductFactory::ManagedFiles.new(sources: {}).apply(operation, target_root: target)
+      ProductFactory::FileSync::Target.new(root: target).apply(operation)
       journal = ProductFactory::Journal.new(
         path: File.join(target, ".product-factory-journal.jsonl"),
         clock: -> { Time.utc(2026, 9, 2) }
@@ -133,16 +133,16 @@ RSpec.describe ProductFactory::Setup do
       journal.append(event: "operation_completed", run_id: plan.run_id, operation_id: operation.id)
 
       expect(setup.apply(plan)).to eq(:success)
-      expect(ProductFactory::Validator.new(root: target).call).to be(true)
+      expect(ProductFactory::Validator.call(root: target)).to be(true)
     end
   end
 
-  it "resumes a started managed operation that already reached its desired state" do
+  it "resumes a started file operation that already reached its desired state" do
     in_tmp_repo do |target|
       setup = build_setup(target)
       plan = setup.plan
       operation = plan.operations.find { |item| item.kind == "write_file" }
-      ProductFactory::ManagedFiles.new(sources: {}).apply(operation, target_root: target)
+      ProductFactory::FileSync::Target.new(root: target).apply(operation)
       journal = ProductFactory::Journal.new(
         path: File.join(target, ".product-factory-journal.jsonl"),
         clock: -> { Time.utc(2026, 9, 2) }
@@ -151,11 +151,11 @@ RSpec.describe ProductFactory::Setup do
       journal.append(event: "operation_started", run_id: plan.run_id, operation_id: operation.id)
 
       expect(setup.apply(plan)).to eq(:success)
-      expect(ProductFactory::Validator.new(root: target).call).to be(true)
+      expect(ProductFactory::Validator.call(root: target)).to be(true)
     end
   end
 
-  it "never verifies a completed managed operation through a symlinked ancestor" do
+  it "never verifies a completed file operation through a symlinked ancestor" do
     in_tmp_repo do |target|
       setup = build_setup(target)
       generated = setup.plan
@@ -170,7 +170,7 @@ RSpec.describe ProductFactory::Setup do
       FileUtils.mkdir_p(File.join(target, ".product-factory"))
       File.symlink(outside, File.join(target, ".product-factory/runtime"))
       state = ProductFactory::Installation.empty.with(
-        "managed_file_hashes" => {
+        "factory_file_hashes" => {
           operation.target => Digest::SHA256.file(external_path).hexdigest
         },
         "last_successful_setup_run" => generated.run_id

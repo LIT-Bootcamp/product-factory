@@ -3,13 +3,13 @@
 RSpec.describe ProductFactory::Validator do
   def install_valid_factory(root, pending_operations: [])
     write(root, ProductFactory::Config::PATH, File.read(File.expand_path("../../templates/config.yml", __dir__)))
-    managed_path = ".product-factory/runtime/lib/product_factory.rb"
+    factory_path = ".product-factory/runtime/lib/product_factory.rb"
     runner_path = ".product-factory/spec/runtime_spec.rb"
-    write(root, managed_path, "managed\n")
+    write(root, factory_path, "factory\n")
     write(root, runner_path, "RSpec.describe('runtime') { it { expect(true).to eq(true) } }\n")
     ProductFactory::Installation.empty.with(
-      "managed_file_hashes" => {
-        managed_path => Digest::SHA256.hexdigest("managed\n"),
+      "factory_file_hashes" => {
+        factory_path => Digest::SHA256.hexdigest("factory\n"),
         runner_path => Digest::SHA256.file(File.join(root, runner_path)).hexdigest
       },
       "pending_operations" => pending_operations,
@@ -29,7 +29,7 @@ RSpec.describe ProductFactory::Validator do
     end
   end
 
-  it "rejects a modified managed file" do
+  it "rejects a modified factory file" do
     in_tmp_repo do |root|
       install_valid_factory(root)
       write(root, ".product-factory/runtime/lib/product_factory.rb", "changed\n")
@@ -39,18 +39,18 @@ RSpec.describe ProductFactory::Validator do
     end
   end
 
-  it "never treats the human-owned config as a managed file" do
+  it "never treats the human-owned config as a factory file" do
     in_tmp_repo do |root|
       install_valid_factory(root)
       config_path = File.join(root, ProductFactory::Config::PATH)
       ProductFactory::Installation.load(root).with(
-        "managed_file_hashes" => {
+        "factory_file_hashes" => {
           ProductFactory::Config::PATH => Digest::SHA256.file(config_path).hexdigest
         }
       ).write(root)
 
       expect { described_class.new(root: root).call }
-        .to raise_error(ProductFactory::ValidationError, /invalid managed file path/)
+        .to raise_error(ProductFactory::ValidationError, /invalid factory file path/)
     end
   end
 
@@ -88,7 +88,7 @@ RSpec.describe ProductFactory::Validator do
     end
   end
 
-  it "rejects managed files reached through a symlinked directory" do
+  it "rejects factory files reached through a symlinked directory" do
     in_tmp_repo do |root|
       install_valid_factory(root)
       runtime = File.join(root, ".product-factory/runtime")

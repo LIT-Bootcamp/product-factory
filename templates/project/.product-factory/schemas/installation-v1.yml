@@ -1,4 +1,4 @@
-ownership: machine-managed
+ownership: product-factory
 fields:
   schema_version:
     type: integer
@@ -10,7 +10,7 @@ fields:
     type: string_or_null
   github_resource_ids:
     type: mapping
-  managed_file_hashes:
+  factory_file_hashes:
     type: mapping_of_strings
   last_successful_setup_run:
     type: string_or_null

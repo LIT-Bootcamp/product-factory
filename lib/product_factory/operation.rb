@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-require "digest"
-require "json"
-
 module ProductFactory
   class Operation
     attr_reader :kind, :target, :attributes

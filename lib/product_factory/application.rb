@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "thor"
-
 module ProductFactory
   class Application < Thor
     package_name "product-factory"
