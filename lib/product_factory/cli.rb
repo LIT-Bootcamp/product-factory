@@ -1,4 +1,5 @@
 require "thor"
+require "open3"
 
 module ProductFactory
   class StreamShell < Thor::Shell::Basic
@@ -60,6 +61,21 @@ module ProductFactory
 
         Setup.from_cli(cwd:, input:, output:).load_and_apply(argv[1])
         0
+      when "doctor"
+        checks = Doctor.new(root: cwd).call
+        checks.each { |check| output.puts("#{check.name}: #{check.status} #{check.message}") }
+        checks.any? { |check| check.status == :fail } ? 1 : 0
+      when "validate"
+        Validator.new(root: cwd).call
+        output.puts("Product Factory installation is valid")
+        0
+      when "test"
+        command = ["bundle", "exec", "rspec"]
+        command << ".product-factory/spec/runtime_spec.rb" if File.exist?(File.join(cwd, Installation::PATH))
+        standard_output, standard_error, status = Open3.capture3(*command, chdir: cwd)
+        output.print(standard_output)
+        error.print(standard_error)
+        status.exitstatus || 1
       else
         Application.start(argv, output:, error:, cwd:) || 0
       end
@@ -69,6 +85,9 @@ module ProductFactory
     rescue ConflictError => exception
       error.puts(exception.message)
       2
+    rescue SystemCallError => exception
+      error.puts("Command failed: #{exception.message}")
+      1
     rescue Error => exception
       error.puts(exception.message)
       1
