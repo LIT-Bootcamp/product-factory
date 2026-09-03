@@ -5,7 +5,8 @@ RSpec.describe ProductFactory::Validator do
     write(root, managed_path, "managed\n")
     ProductFactory::Installation.empty.with(
       "managed_file_hashes" => { managed_path => Digest::SHA256.hexdigest("managed\n") },
-      "pending_operations" => pending_operations
+      "pending_operations" => pending_operations,
+      "last_successful_setup_run" => "RUN-1"
     ).write(root)
     ProductFactory::Journal.new(
       path: File.join(root, ".product-factory-journal.jsonl"),
@@ -77,7 +78,7 @@ RSpec.describe ProductFactory::Validator do
   it "rejects credential values stored in factory state" do
     in_tmp_repo do |root|
       install_valid_factory(root)
-      secret = "factory-test-secret"
+      secret = "factory\"test\\secret"
       previous = ENV["FACTORY_STUDENT_CREDENTIALS"]
       ENV["FACTORY_STUDENT_CREDENTIALS"] = secret
       ProductFactory::Installation.load(root)
@@ -88,6 +89,18 @@ RSpec.describe ProductFactory::Validator do
         .to raise_error(ProductFactory::ValidationError, /credential value/)
     ensure
       previous.nil? ? ENV.delete("FACTORY_STUDENT_CREDENTIALS") : ENV["FACTORY_STUDENT_CREDENTIALS"] = previous
+    end
+  end
+
+  it "requires journal success for the installation run" do
+    in_tmp_repo do |root|
+      install_valid_factory(root)
+      ProductFactory::Installation.load(root)
+        .with("last_successful_setup_run" => "RUN-OTHER")
+        .write(root)
+
+      expect { described_class.new(root: root).call }
+        .to raise_error(ProductFactory::ValidationError, /successful setup run/)
     end
   end
 end

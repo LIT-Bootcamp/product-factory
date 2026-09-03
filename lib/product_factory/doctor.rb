@@ -71,8 +71,23 @@ module ProductFactory
     end
 
     def knowledge_path?(relative_path)
+      return false unless relative_path.is_a?(String)
+
+      parts = relative_path.split(File::SEPARATOR, -1)
+      return false if parts.any? { |part| part.empty? || part == "." || part == ".." }
+
       path = File.expand_path(relative_path, @root)
-      path.start_with?("#{@root}#{File::SEPARATOR}") && File.exist?(path)
+      return false unless path.start_with?("#{@root}#{File::SEPARATOR}")
+
+      current = @root
+      parts.each do |part|
+        current = File.join(current, part)
+        stat = File.lstat(current)
+        return false if stat.symlink?
+      rescue Errno::ENOENT
+        return false
+      end
+      true
     end
   end
 end

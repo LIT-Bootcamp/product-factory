@@ -1,5 +1,4 @@
 require "digest"
-require "json"
 require "pathname"
 
 module ProductFactory
@@ -19,7 +18,8 @@ module ProductFactory
       raise ValidationError, "pending operations remain" unless pending.is_a?(Array) && pending.empty?
 
       journal_path = require_file(".product-factory-journal.jsonl")
-      Journal.new(path: journal_path, clock: -> { Time.now }).events
+      events = Journal.new(path: journal_path, clock: -> { Time.now }).events
+      validate_completed_run(events, installation)
       validate_credentials(config, installation)
       true
     end
@@ -88,8 +88,27 @@ module ProductFactory
     def validate_credentials(config, installation)
       names = config.qa.fetch("credential_env", {}).values.grep(String)
       values = names.filter_map { |name| ENV[name] }.reject(&:empty?)
-      serialized = JSON.generate([config.to_h, installation.to_h])
-      raise ValidationError, "credential value is stored in factory state" if values.any? { |value| serialized.include?(value) }
+      strings = string_values([config.to_h, installation.to_h])
+      raise ValidationError, "credential value is stored in factory state" if values.any? do |value|
+        strings.any? { |string| string.include?(value) }
+      end
+    end
+
+    def validate_completed_run(events, installation)
+      run_id = installation.to_h["last_successful_setup_run"]
+      valid = run_id.is_a?(String) && events.any? do |event|
+        event["event"] == "run_completed" && event["run_id"] == run_id && event["status"] == "success"
+      end
+      raise ValidationError, "journal has no successful setup run for installation" unless valid
+    end
+
+    def string_values(value)
+      case value
+      when Hash then value.flat_map { |key, item| string_values(key) + string_values(item) }
+      when Array then value.flat_map { |item| string_values(item) }
+      when String then [value]
+      else []
+      end
     end
   end
 end
