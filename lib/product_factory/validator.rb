@@ -13,6 +13,7 @@ module ProductFactory
       config = Config.load(@root)
       require_file(Installation::PATH)
       installation = Installation.load(@root)
+      require_file(".product-factory/spec/runtime_spec.rb")
       validate_hashes(installation.managed_file_hashes)
       pending = installation.pending_operations
       raise ValidationError, "pending operations remain" unless pending.is_a?(Array) && pending.empty?

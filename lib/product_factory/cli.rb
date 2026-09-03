@@ -71,7 +71,11 @@ module ProductFactory
         0
       when "test"
         command = ["bundle", "exec", "rspec"]
-        command << ".product-factory/spec/runtime_spec.rb" if File.exist?(File.join(cwd, Installation::PATH))
+        installation_path = File.join(cwd, Installation::PATH)
+        if File.exist?(installation_path) || File.symlink?(installation_path)
+          Validator.new(root: cwd).call
+          command << ".product-factory/spec/runtime_spec.rb"
+        end
         standard_output, standard_error, status = Open3.capture3(*command, chdir: cwd)
         output.print(standard_output)
         error.print(standard_error)

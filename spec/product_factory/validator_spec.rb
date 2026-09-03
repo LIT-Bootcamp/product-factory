@@ -2,9 +2,14 @@ RSpec.describe ProductFactory::Validator do
   def install_valid_factory(root, pending_operations: [])
     write(root, ProductFactory::Config::PATH, File.read(File.expand_path("../../templates/config.yml", __dir__)))
     managed_path = ".product-factory/runtime/lib/product_factory.rb"
+    runner_path = ".product-factory/spec/runtime_spec.rb"
     write(root, managed_path, "managed\n")
+    write(root, runner_path, "RSpec.describe('runtime') { it { expect(true).to eq(true) } }\n")
     ProductFactory::Installation.empty.with(
-      "managed_file_hashes" => { managed_path => Digest::SHA256.hexdigest("managed\n") },
+      "managed_file_hashes" => {
+        managed_path => Digest::SHA256.hexdigest("managed\n"),
+        runner_path => Digest::SHA256.file(File.join(root, runner_path)).hexdigest
+      },
       "pending_operations" => pending_operations,
       "last_successful_setup_run" => "RUN-1"
     ).write(root)
@@ -24,12 +29,8 @@ RSpec.describe ProductFactory::Validator do
 
   it "rejects a modified managed file" do
     in_tmp_repo do |root|
-      config_template = File.expand_path("../../templates/config.yml", __dir__)
-      write(root, ".product-factory/config.yml", File.read(config_template))
+      install_valid_factory(root)
       write(root, ".product-factory/runtime/lib/product_factory.rb", "changed\n")
-      ProductFactory::Installation.empty.with(
-        "managed_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "0" * 64 }
-      ).write(root)
 
       expect { described_class.new(root: root).call }
         .to raise_error(ProductFactory::ValidationError, /\.product-factory\/runtime\/lib\/product_factory\.rb/)
@@ -72,6 +73,16 @@ RSpec.describe ProductFactory::Validator do
 
       expect { described_class.new(root: root).call }
         .to raise_error(ProductFactory::ValidationError, /Missing.*journal/)
+    end
+  end
+
+  it "rejects a missing installed test runner" do
+    in_tmp_repo do |root|
+      install_valid_factory(root)
+      File.delete(File.join(root, ".product-factory/spec/runtime_spec.rb"))
+
+      expect { described_class.new(root: root).call }
+        .to raise_error(ProductFactory::ValidationError, /runtime_spec.rb/)
     end
   end
 
