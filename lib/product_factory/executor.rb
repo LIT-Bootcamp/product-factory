@@ -39,11 +39,14 @@ module ProductFactory
     end
 
     def execute(run_id, operation, handler)
-      @journal.append(
+      started = {
         event: "operation_started",
         run_id:,
         operation_id: operation.id
-      )
+      }
+      reason = operation.attributes["reason"] if operation.attributes.is_a?(Hash)
+      started[:reason] = reason if reason.is_a?(String)
+      @journal.append(started)
 
       handler.apply.call(operation)
       unless handler.verify.call(operation)

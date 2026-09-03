@@ -66,6 +66,9 @@ module ProductFactory
       unless (required + ["recorded_at"]).all? { |key| event[key].is_a?(String) }
         raise ValidationError, "Invalid journal event"
       end
+      if event.key?("reason") && !event["reason"].is_a?(String)
+        raise ValidationError, "Invalid journal event"
+      end
       if event["event"] == "run_completed" && event["status"] != "success"
         raise ValidationError, "Invalid journal event"
       end

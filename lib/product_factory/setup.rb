@@ -347,14 +347,23 @@ module ProductFactory
     end
 
     def validate_managed_operation(operation)
-      return if operation.kind == "delete_file" && operation.attributes == {}
-
       attributes = operation.attributes
+      reason = attributes["reason"] if attributes.is_a?(Hash)
+      valid_reason = reason.nil? || ManagedFiles::RESOLUTIONS.include?(reason)
+      if operation.kind == "delete_file"
+        valid = attributes.is_a?(Hash) && (attributes.keys - ["reason"]).empty? && valid_reason
+        raise ValidationError, "plan has invalid managed operation" unless valid
+
+        return
+      end
+
       valid = operation.kind == "write_file" &&
         attributes.is_a?(Hash) &&
         attributes["content_base64"].is_a?(String) &&
         attributes["mode"].is_a?(Integer) &&
-        attributes["mode"].between?(0, 0o7777)
+        attributes["mode"].between?(0, 0o7777) &&
+        (attributes.keys - %w[content_base64 mode reason]).empty? &&
+        valid_reason
       raise ValidationError, "plan has invalid managed operation" unless valid
 
       attributes.fetch("content_base64").unpack1("m0")

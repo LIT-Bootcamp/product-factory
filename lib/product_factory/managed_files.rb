@@ -48,10 +48,10 @@ module ProductFactory
             next_hashes[path] = upstream if upstream
           when "take_upstream"
             if upstream
-              operations << write_operation(path, bytes, mode)
+              operations << write_operation(path, bytes, mode, reason: resolution)
               next_hashes[path] = upstream
             else
-              operations << Operation.new(kind: "delete_file", target: path)
+              operations << Operation.new(kind: "delete_file", target: path, attributes: { "reason" => resolution })
             end
           when "manual_merge"
             if merged_hash && local == merged_hash
@@ -165,14 +165,16 @@ module ProductFactory
       }
     end
 
-    def write_operation(path, bytes, mode)
+    def write_operation(path, bytes, mode, reason: nil)
+      attributes = {
+        "content_base64" => [bytes].pack("m0"),
+        "mode" => mode
+      }
+      attributes["reason"] = reason if reason
       Operation.new(
         kind: "write_file",
         target: path,
-        attributes: {
-          "content_base64" => [bytes].pack("m0"),
-          "mode" => mode
-        }
+        attributes:
       )
     end
 
