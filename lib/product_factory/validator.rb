@@ -32,6 +32,9 @@ module ProductFactory
       end
 
       hashes.each do |relative_path, expected_hash|
+        unless factory_managed_path?(relative_path)
+          raise ValidationError, "invalid managed file path: #{relative_path}"
+        end
         path = safe_path(relative_path)
         raise ValidationError, "managed file missing: #{relative_path}" unless File.exist?(path) && File.lstat(path).file?
         unless expected_hash.is_a?(String) && expected_hash.match?(/\A[0-9a-f]{64}\z/)
@@ -39,6 +42,13 @@ module ProductFactory
         end
         raise ValidationError, "managed file hash mismatch: #{relative_path}" unless Digest::SHA256.file(path).hexdigest == expected_hash
       end
+    end
+
+    def factory_managed_path?(path)
+      path.is_a?(String) && (
+        path == "bin/product-factory" ||
+        Setup::LEGACY_MANAGED_PREFIXES.any? { |prefix| path.start_with?(prefix) }
+      )
     end
 
     def safe_path(relative_path)

@@ -36,6 +36,21 @@ RSpec.describe ProductFactory::Validator do
     end
   end
 
+  it "never treats the human-owned config as a managed file" do
+    in_tmp_repo do |root|
+      install_valid_factory(root)
+      config_path = File.join(root, ProductFactory::Config::PATH)
+      ProductFactory::Installation.load(root).with(
+        "managed_file_hashes" => {
+          ProductFactory::Config::PATH => Digest::SHA256.file(config_path).hexdigest
+        }
+      ).write(root)
+
+      expect { described_class.new(root: root).call }
+        .to raise_error(ProductFactory::ValidationError, /invalid managed file path/)
+    end
+  end
+
   it "requires an intact journal and no pending operations" do
     in_tmp_repo do |root|
       install_valid_factory(root, pending_operations: [{ "id" => "pending" }])
