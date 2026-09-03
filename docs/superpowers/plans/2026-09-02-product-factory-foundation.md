@@ -15,6 +15,9 @@
 - Use Ruby 4.0.6, the latest stable release when this plan was approved.
 - Use Thor 1.5.x for the command interface; Rails already depends on Thor, so installed Rails projects gain no separate CLI stack.
 - Use RSpec only; Minitest is forbidden.
+- Load `spec_helper` once through `.rspec`; individual specs do not require it.
+- Use `described_class` instead of repeating the class under test.
+- Do not add FactoryBot in Slice 1 because the runtime has no domain model fixtures.
 - Use no runtime gem dependency other than Thor and no Rails runtime coupling.
 - Do not invoke an LLM or mutate GitHub in this slice.
 - `plan` performs no filesystem mutation in the target repository.
@@ -82,14 +85,12 @@ Public interfaces introduced here are intentionally concrete. Later slices add o
 
 ```ruby
 # spec/product_factory/cli_spec.rb
-require "spec_helper"
-
 RSpec.describe ProductFactory::CLI do
   describe ".start" do
     it "prints the version and succeeds" do
     output = StringIO.new
 
-      status = ProductFactory::CLI.start(["--version"], output: output)
+      status = described_class.start(["--version"], output: output)
 
       expect(status).to eq(0)
       expect(output.string).to eq("product-factory #{ProductFactory::VERSION}\n")
@@ -98,7 +99,7 @@ RSpec.describe ProductFactory::CLI do
     it "returns a usage error for an unknown command" do
       error = StringIO.new
 
-      status = ProductFactory::CLI.start(["unknown"], error: error)
+      status = described_class.start(["unknown"], error: error)
 
       expect(status).to eq(64)
       expect(error.string).to include("Unknown command: unknown")
@@ -255,8 +256,6 @@ git commit -m "Add Product Factory Ruby CLI"
 
 ```ruby
 # spec/product_factory/config_spec.rb
-require "spec_helper"
-
 RSpec.describe ProductFactory::Config do
   it "loads v1 config and applies fixed defaults" do
     in_tmp_repo do |root|
@@ -281,7 +280,7 @@ RSpec.describe ProductFactory::Config do
         knowledge: { paths: [AGENTS.md] }
       YAML
 
-      config = ProductFactory::Config.load(root)
+      config = described_class.load(root)
 
       expect(config.schema_version).to eq(1)
       expect(config.product.fetch("name")).to eq("Bootcamper")
@@ -293,7 +292,7 @@ RSpec.describe ProductFactory::Config do
     in_tmp_repo do |root|
       write(root, ".product-factory/config.yml", "schema_version: 1\n")
 
-      expect { ProductFactory::Config.load(root) }
+      expect { described_class.load(root) }
         .to raise_error(ProductFactory::ValidationError, /product\.name is required/)
     end
   end
@@ -302,7 +301,7 @@ RSpec.describe ProductFactory::Config do
     in_tmp_repo do |root|
       write(root, ".product-factory/config.yml", "--- !ruby/object:Object {}\n")
 
-      expect { ProductFactory::Config.load(root) }
+      expect { described_class.load(root) }
         .to raise_error(ProductFactory::ValidationError)
     end
   end
@@ -447,19 +446,17 @@ git commit -m "Validate Product Factory configuration"
 
 ```ruby
 # spec/product_factory/installation_spec.rb
-require "spec_helper"
-
 RSpec.describe ProductFactory::Installation do
   it "loads missing state as empty and round-trips atomically" do
     in_tmp_repo do |root|
-      installation = ProductFactory::Installation.load(root)
+      installation = described_class.load(root)
       installation = installation.with(
         "factory_version" => "0.1.0",
         "managed_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "abc" }
       )
 
       installation.write(root)
-      loaded = ProductFactory::Installation.load(root)
+      loaded = described_class.load(root)
 
       expect(loaded.factory_version).to eq("0.1.0")
       expect(loaded.managed_file_hashes).to eq({ ".product-factory/runtime/lib/product_factory.rb" => "abc" })
@@ -568,8 +565,6 @@ git commit -m "Persist Product Factory installation state"
 
 ```ruby
 # spec/product_factory/plan_spec.rb
-require "spec_helper"
-
 RSpec.describe ProductFactory::Plan do
   it "keeps operation IDs stable across hash order" do
     first = ProductFactory::Operation.new(kind: "write_file", target: "a", attributes: { "b" => 2, "a" => 1 })
@@ -579,7 +574,7 @@ RSpec.describe ProductFactory::Plan do
   end
 
   it "cannot apply a plan with conflicts" do
-    plan = ProductFactory::Plan.new(run_id: "RUN-1", mode: "refresh", operations: [], conflicts: [{ "path" => "a" }])
+    plan = described_class.new(run_id: "RUN-1", mode: "refresh", operations: [], conflicts: [{ "path" => "a" }])
 
     expect(plan).not_to be_applicable
   end
@@ -695,15 +690,13 @@ git commit -m "Add deterministic setup plans"
 
 ```ruby
 # spec/product_factory/managed_files_spec.rb
-require "spec_helper"
-
 RSpec.describe ProductFactory::ManagedFiles do
   it "implements the three-way refresh truth table" do
     in_tmp_repo do |source|
       in_tmp_repo do |target|
         write(source, "managed/a.txt", "upstream-v1\n")
         sources = { "a.txt" => File.join(source, "managed/a.txt") }
-        files = ProductFactory::ManagedFiles.new(sources: sources)
+        files = described_class.new(sources: sources)
         initial = files.plan(target_root: target, installed_hashes: {})
         files.apply(initial.fetch(:operations).first, target_root: target)
         old_hashes = initial.fetch(:next_hashes)
@@ -803,8 +796,6 @@ git commit -m "Plan safe managed-file refreshes"
 
 ```ruby
 # spec/product_factory/executor_spec.rb
-require "spec_helper"
-
 RSpec.describe ProductFactory::Executor do
   it "skips verified completed operations when resuming" do
     in_tmp_repo do |root|
@@ -824,7 +815,7 @@ RSpec.describe ProductFactory::Executor do
       end
       verify = ->(operation) { applied.include?(operation.target) }
       handler = ProductFactory::Executor::Handler.new(apply: apply, verify: verify)
-      executor = ProductFactory::Executor.new(journal: journal, handlers: { "record" => handler })
+      executor = described_class.new(journal: journal, handlers: { "record" => handler })
 
       expect { executor.apply(plan) }.to raise_error(ProductFactory::Error, "interrupted")
       expect(executor.apply(plan)).to eq(:success)
@@ -899,12 +890,10 @@ git commit -m "Resume journaled factory operations"
 
 ```ruby
 # spec/product_factory/setup_spec.rb
-require "spec_helper"
-
 RSpec.describe ProductFactory::Setup do
   it "applies an initial setup and plans the next refresh as a no-op" do
     in_tmp_repo do |target|
-      setup = ProductFactory::Setup.new(
+      setup = described_class.new(
         distribution_root: File.expand_path("../..", __dir__),
         target_root: target,
         input: StringIO.new("yes\n"),
@@ -1054,12 +1043,10 @@ git commit -m "Add local setup and refresh flow"
 
 ```ruby
 # spec/product_factory/doctor_spec.rb
-require "spec_helper"
-
 RSpec.describe ProductFactory::Doctor do
   it "reports missing gh without running setup" do
     runner = ->(*command) { command == ["ruby", "--version"] ? [true, "ruby 3.3.0"] : [false, "missing"] }
-    checks = ProductFactory::Doctor.new(root: Dir.pwd, command_runner: runner).call
+    checks = described_class.new(root: Dir.pwd, command_runner: runner).call
 
     expect(checks.find { |check| check.name == "ruby" }.status).to eq(:pass)
     expect(checks.find { |check| check.name == "gh" }.status).to eq(:fail)
@@ -1069,8 +1056,6 @@ end
 
 ```ruby
 # spec/product_factory/validator_spec.rb
-require "spec_helper"
-
 RSpec.describe ProductFactory::Validator do
   it "rejects a modified managed file" do
     in_tmp_repo do |root|
@@ -1081,7 +1066,7 @@ RSpec.describe ProductFactory::Validator do
         "managed_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "not-the-current-hash" }
       ).write(root)
 
-      expect { ProductFactory::Validator.new(root: root).call }
+      expect { described_class.new(root: root).call }
         .to raise_error(ProductFactory::ValidationError, /\.product-factory\/runtime\/lib\/product_factory\.rb/)
     end
   end
