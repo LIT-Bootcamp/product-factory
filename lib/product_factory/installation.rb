@@ -27,14 +27,16 @@ module ProductFactory
     def self.empty = new(DEFAULTS)
 
     def initialize(data)
-      @data = DEFAULTS.merge(data.transform_keys(&:to_s)).freeze
+      raise ValidationError, "installation state must be a mapping" unless data.is_a?(Hash)
+
+      @data = immutable_copy(DEFAULTS.merge(data.transform_keys(&:to_s)))
       raise ValidationError, "installation schema_version must equal 1" unless @data["schema_version"] == 1
     end
 
     def factory_version = @data["factory_version"]
-    def managed_file_hashes = @data["managed_file_hashes"].dup
-    def pending_operations = @data["pending_operations"].dup
-    def to_h = @data.dup
+    def managed_file_hashes = mutable_copy(@data["managed_file_hashes"])
+    def pending_operations = mutable_copy(@data["pending_operations"])
+    def to_h = mutable_copy(@data)
     def with(attributes) = self.class.new(@data.merge(attributes.transform_keys(&:to_s)))
 
     def write(root)
@@ -45,6 +47,26 @@ module ProductFactory
       File.rename(temporary, path)
     ensure
       File.delete(temporary) if temporary && File.exist?(temporary)
+    end
+
+    private
+
+    def immutable_copy(value)
+      case value
+      when Hash then value.to_h { |key, item| [immutable_copy(key), immutable_copy(item)] }.freeze
+      when Array then value.map { |item| immutable_copy(item) }.freeze
+      when String then value.dup.freeze
+      else value
+      end
+    end
+
+    def mutable_copy(value)
+      case value
+      when Hash then value.to_h { |key, item| [mutable_copy(key), mutable_copy(item)] }
+      when Array then value.map { |item| mutable_copy(item) }
+      when String then value.dup
+      else value
+      end
     end
   end
 end

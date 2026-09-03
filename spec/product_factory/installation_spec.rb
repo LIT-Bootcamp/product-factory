@@ -33,4 +33,27 @@ RSpec.describe ProductFactory::Installation do
         .to raise_error(ProductFactory::ValidationError, /Invalid \.product-factory\/installation\.yml/)
     end
   end
+
+  it "rejects a non-mapping document root" do
+    in_tmp_repo do |root|
+      write(root, described_class::PATH, "true\n")
+
+      expect { described_class.load(root) }
+        .to raise_error(ProductFactory::ValidationError, "installation state must be a mapping")
+    end
+  end
+
+  it "does not expose nested state for mutation" do
+    installation = described_class.empty.with(
+      "managed_file_hashes" => { "managed.rb" => "abc" },
+      "pending_operations" => [{ "id" => "operation-1" }]
+    )
+
+    exposed = installation.to_h
+    exposed.fetch("managed_file_hashes")["managed.rb"] = "changed"
+    exposed.fetch("pending_operations").first["id"] = "changed"
+
+    expect(installation.managed_file_hashes).to eq({ "managed.rb" => "abc" })
+    expect(installation.pending_operations).to eq([{ "id" => "operation-1" }])
+  end
 end
