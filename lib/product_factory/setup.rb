@@ -106,6 +106,7 @@ module ProductFactory
       return :success if plan.operations.empty?
 
       journal = Journal.new(path: journal_path, clock: @clock)
+      validate_preconditions!(plan, journal)
       unless confirmed?(journal, plan.run_id)
         @output.puts("#{plan.operations.count} operations")
         @output.print("Apply this plan? [yes/no] ")
@@ -120,19 +121,28 @@ module ProductFactory
     private
 
     def managed_sources
+      library_root = File.join(@distribution_root, "lib")
+      config_source = File.join(@distribution_root, "templates/config.yml")
+      project_root = File.join(@distribution_root, "templates/project")
+      unless File.directory?(library_root) && File.file?(config_source) && File.directory?(project_root)
+        raise ValidationError, "Product Factory distribution is incomplete"
+      end
+
       sources = {}
-      Dir.glob(File.join(@distribution_root, "lib/**/*.rb")).sort.each do |source|
+      Dir.glob(File.join(library_root, "**/*.rb")).sort.each do |source|
         relative = source.delete_prefix("#{@distribution_root}/")
         sources[File.join(".product-factory/runtime", relative)] = source
       end
+      sources[".product-factory/runtime/templates/config.yml"] = config_source
       Dir.glob(
-        File.join(@distribution_root, "templates/project/**/*"),
+        File.join(project_root, "**/*"),
         File::FNM_DOTMATCH
       ).sort.each do |source|
         next unless File.file?(source)
 
-        relative = source.delete_prefix("#{@distribution_root}/templates/project/")
+        relative = source.delete_prefix("#{project_root}/")
         sources[relative] = source
+        sources[File.join(".product-factory/runtime/templates/project", relative)] = source
       end
       sources
     end
@@ -216,6 +226,11 @@ module ProductFactory
       path = File.join(@target_root, Config::PATH)
       ensure_factory_directory
       bytes = operation.attributes.fetch("content_base64").unpack1("m0")
+      if File.exist?(path)
+        return if File.binread(path) == bytes
+
+        raise ConflictError, "#{Config::PATH} already exists"
+      end
 
       Tempfile.create([".product-factory-config-", ".tmp"], File.dirname(path)) do |temp|
         temp.binmode
@@ -350,8 +365,13 @@ module ProductFactory
       attributes = operation.attributes
       reason = attributes["reason"] if attributes.is_a?(Hash)
       valid_reason = reason.nil? || ManagedFiles::RESOLUTIONS.include?(reason)
+      expected_hash = attributes["expected_local_hash"] if attributes.is_a?(Hash)
+      valid_expected_hash = attributes.is_a?(Hash) && attributes.key?("expected_local_hash") &&
+        (expected_hash.nil? || expected_hash.is_a?(String) && expected_hash.match?(/\A[0-9a-f]{64}\z/))
       if operation.kind == "delete_file"
-        valid = attributes.is_a?(Hash) && (attributes.keys - ["reason"]).empty? && valid_reason
+        valid = attributes.is_a?(Hash) &&
+          (attributes.keys - %w[expected_local_hash reason]).empty? &&
+          valid_expected_hash && valid_reason
         raise ValidationError, "plan has invalid managed operation" unless valid
 
         return
@@ -362,8 +382,8 @@ module ProductFactory
         attributes["content_base64"].is_a?(String) &&
         attributes["mode"].is_a?(Integer) &&
         attributes["mode"].between?(0, 0o7777) &&
-        (attributes.keys - %w[content_base64 mode reason]).empty? &&
-        valid_reason
+        (attributes.keys - %w[content_base64 expected_local_hash mode reason]).empty? &&
+        valid_expected_hash && valid_reason
       raise ValidationError, "plan has invalid managed operation" unless valid
 
       attributes.fetch("content_base64").unpack1("m0")
@@ -388,6 +408,25 @@ module ProductFactory
         path == "bin/product-factory" ||
         LEGACY_MANAGED_PREFIXES.any? { |prefix| path.start_with?(prefix) }
       )
+    end
+
+    def validate_preconditions!(plan, journal)
+      completed_ids = journal.completed_operation_ids(plan.run_id)
+      operation_handlers = handlers
+      files = ManagedFiles.new(sources: {})
+
+      plan.operations.each do |operation|
+        next unless %w[write_file delete_file].include?(operation.kind)
+
+        handler = operation_handlers.fetch(operation.kind)
+        next if completed_ids.include?(operation.id) && handler.verify.call(operation)
+
+        expected = operation.attributes.fetch("expected_local_hash")
+        actual = files.current_hash(target_root: @target_root, path: operation.target)
+        next if actual == expected
+
+        raise ConflictError, "#{operation.target} changed since plan"
+      end
     end
   end
 end

@@ -48,10 +48,14 @@ module ProductFactory
             next_hashes[path] = upstream if upstream
           when "take_upstream"
             if upstream
-              operations << write_operation(path, bytes, mode, reason: resolution)
+              operations << write_operation(path, bytes, mode, expected_local_hash: local, reason: resolution)
               next_hashes[path] = upstream
             else
-              operations << Operation.new(kind: "delete_file", target: path, attributes: { "reason" => resolution })
+              operations << Operation.new(
+                kind: "delete_file",
+                target: path,
+                attributes: { "expected_local_hash" => local, "reason" => resolution }
+              )
             end
           when "manual_merge"
             if merged_hash && local == merged_hash
@@ -70,12 +74,16 @@ module ProductFactory
 
         case decision
         when :write_upstream
-          operations << write_operation(path, bytes, mode)
+          operations << write_operation(path, bytes, mode, expected_local_hash: local)
           next_hashes[path] = upstream
         when :preserve_local, :adopt, :noop
           next_hashes[path] = upstream
         when :delete_upstream
-          operations << Operation.new(kind: "delete_file", target: path)
+          operations << Operation.new(
+            kind: "delete_file",
+            target: path,
+            attributes: { "expected_local_hash" => local }
+          )
         when :removed
           nil
         end
@@ -99,6 +107,8 @@ module ProductFactory
 
       nil
     end
+
+    def current_hash(target_root:, path:) = target_hash(target_root, path)
 
     private
 
@@ -165,9 +175,10 @@ module ProductFactory
       }
     end
 
-    def write_operation(path, bytes, mode, reason: nil)
+    def write_operation(path, bytes, mode, expected_local_hash:, reason: nil)
       attributes = {
         "content_base64" => [bytes].pack("m0"),
+        "expected_local_hash" => expected_local_hash,
         "mode" => mode
       }
       attributes["reason"] = reason if reason

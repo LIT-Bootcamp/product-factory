@@ -1,4 +1,5 @@
 require "fileutils"
+require "tempfile"
 require "yaml"
 
 module ProductFactory
@@ -40,13 +41,35 @@ module ProductFactory
     def with(attributes) = self.class.new(@data.merge(attributes.transform_keys(&:to_s)))
 
     def write(root)
+      root = File.expand_path(root)
+      root_stat = File.lstat(root)
+      raise ValidationError, "target root is a symlink" if root_stat.symlink?
+      raise ValidationError, "target root is not a directory" unless root_stat.directory?
+      raise ValidationError, "target root path contains a symlink" unless File.realpath(root) == root
+
+      directory = File.join(root, ".product-factory")
+      if File.exist?(directory) || File.symlink?(directory)
+        directory_stat = File.lstat(directory)
+        raise ValidationError, "state directory is a symlink" if directory_stat.symlink?
+        raise ValidationError, "state directory is not a directory" unless directory_stat.directory?
+      else
+        FileUtils.mkdir(directory)
+      end
+
       path = File.join(root, PATH)
-      temporary = "#{path}.tmp"
-      FileUtils.mkdir_p(File.dirname(path))
-      File.write(temporary, YAML.dump(@data))
-      File.rename(temporary, path)
-    ensure
-      File.delete(temporary) if temporary && File.exist?(temporary)
+      if File.symlink?(path) || (File.exist?(path) && !File.lstat(path).file?)
+        raise ValidationError, "installation state is not a regular file"
+      end
+
+      Tempfile.create([".installation-", ".tmp"], directory) do |temporary|
+        temporary.write(YAML.dump(@data))
+        temporary.flush
+        temporary.fsync
+        temporary.chmod(0o644)
+        File.rename(temporary.path, path)
+      end
+    rescue Errno::ENOENT
+      raise ValidationError, "target root does not exist"
     end
 
     private

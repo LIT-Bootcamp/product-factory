@@ -98,6 +98,43 @@ RSpec.describe ProductFactory::Setup do
     end
   end
 
+  it "resumes when a started config seed is already byte-identical" do
+    in_tmp_repo do |target|
+      setup = build_setup(target)
+      plan = setup.plan
+      seed = plan.operations.find { |operation| operation.kind == "seed_config" }
+      journal = ProductFactory::Journal.new(
+        path: File.join(target, ".product-factory-journal.jsonl"),
+        clock: -> { Time.utc(2026, 9, 2) }
+      )
+      journal.append(event: "run_confirmed", run_id: plan.run_id)
+      journal.append(event: "operation_started", run_id: plan.run_id, operation_id: seed.id)
+      write(target, ProductFactory::Config::PATH, seed.attributes.fetch("content_base64").unpack1("m0"))
+
+      expect(setup.apply(plan)).to eq(:success)
+      expect(ProductFactory::Validator.new(root: target).call).to eq(true)
+    end
+  end
+
+  it "allows a verified completed managed operation during resume" do
+    in_tmp_repo do |target|
+      setup = build_setup(target)
+      plan = setup.plan
+      operation = plan.operations.find { |item| item.kind == "write_file" }
+      ProductFactory::ManagedFiles.new(sources: {}).apply(operation, target_root: target)
+      journal = ProductFactory::Journal.new(
+        path: File.join(target, ".product-factory-journal.jsonl"),
+        clock: -> { Time.utc(2026, 9, 2) }
+      )
+      journal.append(event: "run_confirmed", run_id: plan.run_id)
+      journal.append(event: "operation_started", run_id: plan.run_id, operation_id: operation.id)
+      journal.append(event: "operation_completed", run_id: plan.run_id, operation_id: operation.id)
+
+      expect(setup.apply(plan)).to eq(:success)
+      expect(ProductFactory::Validator.new(root: target).call).to eq(true)
+    end
+  end
+
   def build_setup(target)
     described_class.new(
       distribution_root: File.expand_path("../..", __dir__),

@@ -69,6 +69,37 @@ RSpec.describe ProductFactory::Setup do
     end
   end
 
+  it "refreshes through the installed CLI as a no-op" do
+    in_factory do |distribution, target|
+      install(distribution, target)
+      output, error, status = Open3.capture3(
+        "bundle", "exec", "ruby", File.join(target, "bin/product-factory"), "plan",
+        chdir: target
+      )
+
+      expect(status).to be_success, error
+      plan_path = output[/Plan path: (.+)\n/, 1]
+      expect(ProductFactory::Plan.load(plan_path).operations).to be_empty
+    ensure
+      File.delete(plan_path) if plan_path && File.exist?(plan_path)
+    end
+  end
+
+  it "fails closed when the installed distribution is incomplete" do
+    in_factory do |distribution, target|
+      install(distribution, target)
+      FileUtils.remove_entry(File.join(target, ".product-factory/runtime/templates"))
+      _output, error, status = Open3.capture3(
+        "bundle", "exec", "ruby", File.join(target, "bin/product-factory"), "plan",
+        chdir: target
+      )
+
+      expect(status).not_to be_success
+      expect(error).to include("distribution is incomplete")
+      expect(File).to exist(schema_path(target))
+    end
+  end
+
   it "applies an upstream-only change" do
     in_factory do |distribution, target|
       install(distribution, target)
@@ -78,6 +109,22 @@ RSpec.describe ProductFactory::Setup do
       setup = setup_for(distribution, target)
       expect(setup.apply(setup.plan)).to eq(:success)
       expect(File.read(schema_path(target))).to end_with("# upstream\n")
+    end
+  end
+
+  it "rejects local drift after planning before confirmation" do
+    in_factory do |distribution, target|
+      install(distribution, target)
+      source = schema_path(File.join(distribution, "templates/project"))
+      destination = schema_path(target)
+      File.write(source, File.read(source) + "# upstream\n")
+      setup = setup_for(distribution, target)
+      plan = setup.plan
+      File.write(destination, File.read(destination) + "# late local edit\n")
+
+      expect { setup.apply(plan) }
+        .to raise_error(ProductFactory::ConflictError, /changed since plan/)
+      expect(File.read(destination)).to end_with("# late local edit\n")
     end
   end
 

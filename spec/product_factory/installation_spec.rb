@@ -56,4 +56,31 @@ RSpec.describe ProductFactory::Installation do
     expect(installation.managed_file_hashes).to eq({ "managed.rb" => "abc" })
     expect(installation.pending_operations).to eq([{ "id" => "operation-1" }])
   end
+
+  it "does not follow a predictable temporary-file symlink" do
+    in_tmp_repo do |root|
+      FileUtils.mkdir_p(File.join(root, ".product-factory"))
+      outside = File.join(root, "outside.yml")
+      File.write(outside, "keep\n")
+      File.symlink(outside, File.join(root, "#{described_class::PATH}.tmp"))
+
+      described_class.empty.write(root)
+
+      expect(File.read(outside)).to eq("keep\n")
+      expect(described_class.load(root).to_h).to eq(described_class.empty.to_h)
+    end
+  end
+
+  it "rejects a symlinked state directory" do
+    in_tmp_repo do |root|
+      outside = File.realpath(Dir.mktmpdir("product-factory-installation-"))
+      File.symlink(outside, File.join(root, ".product-factory"))
+
+      expect { described_class.empty.write(root) }
+        .to raise_error(ProductFactory::ValidationError, /symlink/)
+      expect(Dir.children(outside)).to be_empty
+    ensure
+      FileUtils.remove_entry(outside) if outside && File.exist?(outside)
+    end
+  end
 end
