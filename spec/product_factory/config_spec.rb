@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe ProductFactory::Config do
   let(:valid_config) do
     {

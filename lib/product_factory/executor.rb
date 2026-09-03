@@ -1,7 +1,7 @@
+# frozen_string_literal: true
+
 module ProductFactory
   class Executor
-    Handler = Data.define(:apply, :verify)
-
     def initialize(journal:, handlers:)
       @journal = journal
       @handlers = handlers.transform_keys(&:to_s)
@@ -49,22 +49,20 @@ module ProductFactory
       @journal.append(started)
 
       handler.apply.call(operation)
-      unless handler.verify.call(operation)
-        raise ValidationError, "verification failed for #{operation.id}"
-      end
+      raise ValidationError, "verification failed for #{operation.id}" unless handler.verify.call(operation)
 
       @journal.append(
         event: "operation_completed",
         run_id:,
         operation_id: operation.id
       )
-    rescue StandardError => error
+    rescue StandardError => e
       @journal.append(
         event: "operation_failed",
         run_id:,
         operation_id: operation.id,
-        error_class: error.class.name,
-        message: error.message
+        error_class: e.class.name,
+        message: e.message
       )
       raise
     end

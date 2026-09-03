@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe ProductFactory::CLI do
   it "leaves git status unchanged while planning" do
     in_tmp_repo do |target|
@@ -5,6 +7,7 @@ RSpec.describe ProductFactory::CLI do
 
       write(target, "README.md", "existing\n")
       raise "git add failed" unless system("git", "-C", target, "add", "README.md")
+
       status = -> { IO.popen(["git", "-C", target, "status", "--porcelain"], &:read) }
       before = status.call
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe ProductFactory::Doctor do
   it "reports missing gh without running setup" do
     commands = []
@@ -23,7 +25,7 @@ RSpec.describe ProductFactory::Doctor do
     runner = ->(*command) { [true, command.first == "ruby" ? "ruby 4.0.7" : "true"] }
 
     check = described_class.new(root: Dir.pwd, command_runner: runner).call
-      .find { |result| result.name == "ruby" }
+                           .find { |result| result.name == "ruby" }
 
     expect(check.status).to eq(:fail)
   end
@@ -41,7 +43,7 @@ RSpec.describe ProductFactory::Doctor do
       runner = ->(*command) { [true, command.first == "ruby" ? "ruby 4.0.6" : "true"] }
 
       check = described_class.new(root:, command_runner: runner).call
-        .find { |result| result.name == "knowledge" }
+                             .find { |result| result.name == "knowledge" }
 
       expect(check.status).to eq(:fail)
     ensure

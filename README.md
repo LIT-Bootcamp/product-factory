@@ -19,6 +19,8 @@ bundle exec rake
 bin/product-factory --version
 ```
 
+The default Rake task runs the complete RSpec suite and RuboCop.
+
 ## Local setup
 
 Planning does not modify the target project. Apply the generated plan only after reviewing its printed operations:

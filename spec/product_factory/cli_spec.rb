@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe ProductFactory::CLI do
   describe ".start" do
     it "prints the version and succeeds" do
@@ -31,10 +33,9 @@ RSpec.describe ProductFactory::CLI do
       in_tmp_repo do |root|
         write(root, ProductFactory::Installation::PATH, "schema_version: 1\n")
         validator = instance_double(ProductFactory::Validator, call: true)
-        expect(ProductFactory::Validator).to receive(:new).with(root: root).and_return(validator)
+        allow(ProductFactory::Validator).to receive(:new).and_return(validator)
         process_status = instance_double(Process::Status, exitstatus: 3)
-        expect(Open3).to receive(:capture3)
-          .with("bundle", "exec", "rspec", ".product-factory/spec/runtime_spec.rb", chdir: root)
+        allow(Open3).to receive(:capture3)
           .and_return(["out", "err", process_status])
         output = StringIO.new
         error = StringIO.new
@@ -42,9 +43,11 @@ RSpec.describe ProductFactory::CLI do
         expect(described_class.start(["test"], cwd: root, output:, error:)).to eq(3)
         expect(output.string).to eq("out")
         expect(error.string).to eq("err")
+        expect(ProductFactory::Validator).to have_received(:new).with(root: root)
+        expect(Open3).to have_received(:capture3)
+          .with("bundle", "exec", "rspec", ".product-factory/spec/runtime_spec.rb", chdir: root)
       end
     end
-
 
     it "does not execute an installed test through symlinked state" do
       in_tmp_repo do |root|
@@ -52,11 +55,12 @@ RSpec.describe ProductFactory::CLI do
         File.write(File.join(outside, "installation.yml"), "schema_version: 1\n")
         write(root, ProductFactory::Config::PATH, File.read(File.expand_path("../../templates/config.yml", __dir__)))
         File.symlink(File.join(outside, "installation.yml"), File.join(root, ProductFactory::Installation::PATH))
-        expect(Open3).not_to receive(:capture3)
+        allow(Open3).to receive(:capture3)
         error = StringIO.new
 
         expect(described_class.start(["test"], cwd: root, error:)).to eq(1)
         expect(error.string).to include("symlink")
+        expect(Open3).not_to have_received(:capture3)
       ensure
         FileUtils.remove_entry(outside) if outside && File.exist?(outside)
       end

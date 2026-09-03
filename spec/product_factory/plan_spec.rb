@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe ProductFactory::Plan do
   it "keeps operation IDs stable across recursive hash order" do
     first = ProductFactory::Operation.new(
@@ -16,9 +18,9 @@ RSpec.describe ProductFactory::Plan do
   end
 
   it "does not expose an operation to input or nested mutation" do
-    kind = "write_file"
-    target = "a"
-    attributes = { "nested" => [{ "value" => "original" }] }
+    kind = "write_file".dup
+    target = "a".dup
+    attributes = { "nested" => [{ "value" => "original".dup }] }
     operation = ProductFactory::Operation.new(kind:, target:, attributes:)
 
     kind << "_changed"
@@ -45,8 +47,8 @@ RSpec.describe ProductFactory::Plan do
   end
 
   it "round-trips through JSON without exposing plan data to mutation" do
-    run_id = "RUN-1"
-    mode = "refresh"
+    run_id = "RUN-1".dup
+    mode = "refresh".dup
     operations = [
       ProductFactory::Operation.new(
         kind: "write_file",
@@ -54,7 +56,7 @@ RSpec.describe ProductFactory::Plan do
         attributes: { "content" => ["hello"] }
       )
     ]
-    conflicts = [{ "path" => ["a"] }]
+    conflicts = [{ "path" => ["a".dup] }]
     plan = described_class.new(run_id:, mode:, operations:, conflicts:)
 
     run_id << "-changed"
@@ -93,12 +95,12 @@ RSpec.describe ProductFactory::Plan do
         .to raise_error(ProductFactory::ValidationError, /operation ID/)
 
       write(root, "invalid-shape.json", JSON.generate(
-        "run_id" => "RUN-1",
-        "mode" => "setup",
-        "operations" => nil,
-        "conflicts" => [],
-        "target_root" => root
-      ))
+                                          "run_id" => "RUN-1",
+                                          "mode" => "setup",
+                                          "operations" => nil,
+                                          "conflicts" => [],
+                                          "target_root" => root
+                                        ))
       expect { described_class.load(File.join(root, "invalid-shape.json")) }
         .to raise_error(ProductFactory::ValidationError, /Invalid plan/)
     end

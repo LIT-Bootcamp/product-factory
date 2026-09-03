@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe ProductFactory::ManagedFiles do
   it "implements the three-way refresh truth table" do
     in_tmp_repo do |source|
@@ -95,8 +97,8 @@ RSpec.describe ProductFactory::ManagedFiles do
 
       files.apply(plan.fetch(:operations).first, target_root: target)
 
-      expect(File.exist?(File.join(target, "empty/a.txt"))).to eq(false)
-      expect(Dir.exist?(File.join(target, "empty"))).to eq(false)
+      expect(File.exist?(File.join(target, "empty/a.txt"))).to be(false)
+      expect(Dir.exist?(File.join(target, "empty"))).to be(false)
       expect(File.read(File.join(target, "kept/b.txt"))).to eq("changed\n")
       expect(File.read(File.join(target, "local/c.txt"))).to eq("never managed\n")
     end
@@ -160,8 +162,8 @@ RSpec.describe ProductFactory::ManagedFiles do
           .to raise_error(ProductFactory::ValidationError, /unsafe managed target path/)
       end
 
-      expect(File.exist?(File.join(container, "escape.txt"))).to eq(false)
-      expect(File.exist?(File.join(container, "absolute.txt"))).to eq(false)
+      expect(File.exist?(File.join(container, "escape.txt"))).to be(false)
+      expect(File.exist?(File.join(container, "absolute.txt"))).to be(false)
     end
   end
 
@@ -195,7 +197,7 @@ RSpec.describe ProductFactory::ManagedFiles do
             .to raise_error(ProductFactory::ValidationError, /target is a symlink/)
           expect { nested_files.apply(nested_operation, target_root: target) }
             .to raise_error(ProductFactory::ValidationError, /target is a symlink/)
-          expect(File.exist?(File.join(outside, "a.txt"))).to eq(false)
+          expect(File.exist?(File.join(outside, "a.txt"))).to be(false)
         end
       end
     end

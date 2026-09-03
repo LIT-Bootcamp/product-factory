@@ -1,5 +1,6 @@
+# frozen_string_literal: true
+
 require "digest"
-require "pathname"
 
 module ProductFactory
   class Validator
@@ -28,20 +29,23 @@ module ProductFactory
     private
 
     def validate_hashes(hashes)
-      unless hashes.is_a?(Hash)
-        raise ValidationError, "managed file hashes must be a mapping"
-      end
+      raise ValidationError, "managed file hashes must be a mapping" unless hashes.is_a?(Hash)
 
       hashes.each do |relative_path, expected_hash|
-        unless factory_managed_path?(relative_path)
-          raise ValidationError, "invalid managed file path: #{relative_path}"
-        end
+        raise ValidationError, "invalid managed file path: #{relative_path}" unless factory_managed_path?(relative_path)
+
         path = safe_path(relative_path)
-        raise ValidationError, "managed file missing: #{relative_path}" unless File.exist?(path) && File.lstat(path).file?
+        unless File.exist?(path) && File.lstat(path).file?
+          raise ValidationError,
+                "managed file missing: #{relative_path}"
+        end
         unless expected_hash.is_a?(String) && expected_hash.match?(/\A[0-9a-f]{64}\z/)
           raise ValidationError, "invalid managed file hash: #{relative_path}"
         end
-        raise ValidationError, "managed file hash mismatch: #{relative_path}" unless Digest::SHA256.file(path).hexdigest == expected_hash
+        unless Digest::SHA256.file(path).hexdigest == expected_hash
+          raise ValidationError,
+                "managed file hash mismatch: #{relative_path}"
+        end
       end
     end
 
@@ -53,18 +57,28 @@ module ProductFactory
     end
 
     def safe_path(relative_path)
-      unless relative_path.is_a?(String)
-        raise ValidationError, "unsafe managed file path: #{relative_path.inspect}"
-      end
-
-      parts = relative_path.split(File::SEPARATOR, -1)
-      if parts.any? { |part| part.empty? || part == "." || part == ".." } || Pathname.new(relative_path).absolute?
+      parts = validate_relative_path!(relative_path)
+      path = File.expand_path(relative_path, @root)
+      unless path.start_with?("#{@root}#{File::SEPARATOR}")
         raise ValidationError, "unsafe managed file path: #{relative_path}"
       end
 
-      path = File.expand_path(relative_path, @root)
-      raise ValidationError, "unsafe managed file path: #{relative_path}" unless path.start_with?("#{@root}#{File::SEPARATOR}")
+      validate_path_ancestors!(parts, relative_path)
+      path
+    end
 
+    def validate_relative_path!(relative_path)
+      raise ValidationError, "unsafe managed file path: #{relative_path.inspect}" unless relative_path.is_a?(String)
+
+      parts = relative_path.split(File::SEPARATOR, -1)
+      unsafe = Pathname.new(relative_path).absolute? ||
+               parts.any? { |part| part.empty? || part == "." || part == ".." }
+      raise ValidationError, "unsafe managed file path: #{relative_path}" if unsafe
+
+      parts
+    end
+
+    def validate_path_ancestors!(parts, relative_path)
       current = @root
       parts.each do |part|
         current = File.join(current, part)
@@ -73,8 +87,6 @@ module ProductFactory
       rescue Errno::ENOENT
         break
       end
-
-      path
     end
 
     def validate_root
@@ -88,9 +100,7 @@ module ProductFactory
 
     def require_file(relative_path)
       path = safe_path(relative_path)
-      unless File.exist?(path)
-        raise ValidationError, "Missing #{relative_path}"
-      end
+      raise ValidationError, "Missing #{relative_path}" unless File.exist?(path)
       raise ValidationError, "#{relative_path} is not a file" unless File.lstat(path).file?
 
       path
@@ -98,7 +108,7 @@ module ProductFactory
 
     def validate_credentials(config, installation)
       names = config.qa.fetch("credential_env", {}).values.grep(String)
-      values = names.filter_map { |name| ENV[name] }.reject(&:empty?)
+      values = names.filter_map { |name| ENV.fetch(name, nil) }.reject(&:empty?)
       strings = string_values([config.to_h, installation.to_h])
       raise ValidationError, "credential value is stored in factory state" if values.any? do |value|
         strings.any? { |string| string.include?(value) }

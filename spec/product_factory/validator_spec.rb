@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe ProductFactory::Validator do
   def install_valid_factory(root, pending_operations: [])
     write(root, ProductFactory::Config::PATH, File.read(File.expand_path("../../templates/config.yml", __dir__)))
@@ -23,7 +25,7 @@ RSpec.describe ProductFactory::Validator do
     in_tmp_repo do |root|
       install_valid_factory(root)
 
-      expect(described_class.new(root: root).call).to eq(true)
+      expect(described_class.new(root: root).call).to be(true)
     end
   end
 
@@ -33,7 +35,7 @@ RSpec.describe ProductFactory::Validator do
       write(root, ".product-factory/runtime/lib/product_factory.rb", "changed\n")
 
       expect { described_class.new(root: root).call }
-        .to raise_error(ProductFactory::ValidationError, /\.product-factory\/runtime\/lib\/product_factory\.rb/)
+        .to raise_error(ProductFactory::ValidationError, %r{\.product-factory/runtime/lib/product_factory\.rb})
     end
   end
 
@@ -105,11 +107,11 @@ RSpec.describe ProductFactory::Validator do
     in_tmp_repo do |root|
       install_valid_factory(root)
       secret = "factory\"test\\secret"
-      previous = ENV["FACTORY_STUDENT_CREDENTIALS"]
+      previous = ENV.fetch("FACTORY_STUDENT_CREDENTIALS", nil)
       ENV["FACTORY_STUDENT_CREDENTIALS"] = secret
       ProductFactory::Installation.load(root)
-        .with("github_resource_ids" => { "leak" => secret })
-        .write(root)
+                                  .with("github_resource_ids" => { "leak" => secret })
+                                  .write(root)
 
       expect { described_class.new(root: root).call }
         .to raise_error(ProductFactory::ValidationError, /credential value/)
@@ -122,8 +124,8 @@ RSpec.describe ProductFactory::Validator do
     in_tmp_repo do |root|
       install_valid_factory(root)
       ProductFactory::Installation.load(root)
-        .with("last_successful_setup_run" => "RUN-OTHER")
-        .write(root)
+                                  .with("last_successful_setup_run" => "RUN-OTHER")
+                                  .write(root)
 
       expect { described_class.new(root: root).call }
         .to raise_error(ProductFactory::ValidationError, /successful setup run/)

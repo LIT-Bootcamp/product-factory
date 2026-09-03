@@ -1,4 +1,6 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
+
 $LOAD_PATH.unshift(File.expand_path("../.product-factory/runtime/lib", __dir__))
 require "product_factory"
 exit ProductFactory::CLI.start(ARGV)

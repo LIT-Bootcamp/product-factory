@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe ProductFactory::Executor do
   it "skips verified completed operations when resuming" do
     in_tmp_repo do |root|
@@ -34,10 +36,13 @@ RSpec.describe ProductFactory::Executor do
   it "rejects malformed journal entries" do
     in_tmp_repo do |root|
       path = File.join(root, "journal.jsonl")
-      File.write(
-        path,
-        "{\"event\":\"operation_completed\",\"run_id\":\"RUN-1\",\"operation_id\":\"abc\",\"recorded_at\":\"2026-09-02T00:00:00Z\"}\n{"
-      )
+      event = {
+        event: "operation_completed",
+        run_id: "RUN-1",
+        operation_id: "abc",
+        recorded_at: "2026-09-02T00:00:00Z"
+      }
+      File.write(path, "#{JSON.generate(event)}\n{")
       journal = ProductFactory::Journal.new(path:, clock: -> { Time.utc(2026, 9, 2) })
 
       expect { journal.events }
@@ -79,7 +84,10 @@ RSpec.describe ProductFactory::Executor do
         ]
       )
       handlers = {
-        "first" => described_class::Handler.new(apply: ->(operation) { calls << operation.target }, verify: ->(_operation) { true }),
+        "first" => described_class::Handler.new(
+          apply: ->(operation) { calls << operation.target },
+          verify: ->(_operation) { true }
+        ),
         "second" => described_class::Handler.new(apply: ->(_operation) {}, verify: nil)
       }
 

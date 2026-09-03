@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "digest"
 require "json"
 
@@ -21,7 +23,7 @@ module ProductFactory
       case value
       when Hash
         value.map { |key, item| [key.to_s.dup.freeze, canonical(item)] }
-          .sort_by(&:first).to_h.freeze
+             .sort_by(&:first).to_h.freeze
       when Array then value.map { |item| canonical(item) }.freeze
       when String then value.dup.freeze
       else value

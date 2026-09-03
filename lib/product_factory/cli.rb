@@ -1,100 +1,88 @@
-require "thor"
+# frozen_string_literal: true
+
 require "open3"
 
 module ProductFactory
-  class StreamShell < Thor::Shell::Basic
-    def initialize(output, error)
-      super()
-      @output = output
-      @error = error
-    end
-
-    def stdout
-      @output
-    end
-
-    def stderr
-      @error
-    end
-  end
-
-  class Application < Thor
-    package_name "product-factory"
-
-    map "--version" => :version
-
-    desc "version", "Print the Product Factory version"
-    def version
-      say "product-factory #{VERSION}"
-      0
-    end
-
-    %w[doctor validate test].each do |command|
-      desc command, "#{command.capitalize} the Product Factory environment"
-      define_method(command) { raise UsageError, "#{command} is not installed" }
-    end
-
-    class << self
-      def start(argv, output:, error:, cwd:)
-        dispatch(nil, argv.dup, nil, shell: StreamShell.new(output, error), cwd: cwd)
-      rescue Thor::Error => exception
-        message = if exception.is_a?(Thor::UndefinedCommandError)
-          "Unknown command: #{exception.command}"
-        else
-          exception.message
-        end
-        raise UsageError, message
-      end
-    end
-  end
-
   class CLI
     COMMANDS = %w[doctor plan apply validate test].freeze
 
     def self.start(argv, input: $stdin, output: $stdout, error: $stderr, cwd: Dir.pwd)
-      case argv.first
-      when "plan"
-        Setup.from_cli(cwd:, input:, output:).plan_and_print(argv.drop(1))
-        0
-      when "apply"
-        raise UsageError, "apply requires PLAN_PATH" unless argv[1]
+      new(input:, output:, error:, cwd:).start(argv)
+    end
 
-        Setup.from_cli(cwd:, input:, output:).load_and_apply(argv[1])
-        0
-      when "doctor"
-        checks = Doctor.new(root: cwd).call
-        checks.each { |check| output.puts("#{check.name}: #{check.status} #{check.message}") }
-        checks.any? { |check| check.status == :fail } ? 1 : 0
-      when "validate"
-        Validator.new(root: cwd).call
-        output.puts("Product Factory installation is valid")
-        0
-      when "test"
-        command = ["bundle", "exec", "rspec"]
-        installation_path = File.join(cwd, Installation::PATH)
-        if File.exist?(installation_path) || File.symlink?(installation_path)
-          Validator.new(root: cwd).call
-          command << ".product-factory/spec/runtime_spec.rb"
-        end
-        standard_output, standard_error, status = Open3.capture3(*command, chdir: cwd)
-        output.print(standard_output)
-        error.print(standard_error)
-        status.exitstatus || 1
-      else
-        Application.start(argv, output:, error:, cwd:) || 0
-      end
-    rescue UsageError => exception
-      error.puts(exception.message)
+    def initialize(input:, output:, error:, cwd:)
+      @input = input
+      @output = output
+      @error = error
+      @cwd = cwd
+    end
+
+    def start(argv)
+      dispatch(argv) || 0
+    rescue UsageError => e
+      @error.puts(e.message)
       64
-    rescue ConflictError => exception
-      error.puts(exception.message)
+    rescue ConflictError => e
+      @error.puts(e.message)
       2
-    rescue SystemCallError => exception
-      error.puts("Command failed: #{exception.message}")
+    rescue SystemCallError => e
+      @error.puts("Command failed: #{e.message}")
       1
-    rescue Error => exception
-      error.puts(exception.message)
+    rescue Error => e
+      @error.puts(e.message)
       1
+    end
+
+    private
+
+    def dispatch(argv)
+      case argv.first
+      when "plan" then plan(argv.drop(1))
+      when "apply" then apply(argv[1])
+      when "doctor" then doctor
+      when "validate" then validate
+      when "test" then test
+      else Application.start(argv, output: @output, error: @error, cwd: @cwd)
+      end
+    end
+
+    def setup = Setup.from_cli(cwd: @cwd, input: @input, output: @output)
+
+    def plan(arguments)
+      setup.plan_and_print(arguments)
+      0
+    end
+
+    def apply(plan_path)
+      raise UsageError, "apply requires PLAN_PATH" unless plan_path
+
+      setup.load_and_apply(plan_path)
+      0
+    end
+
+    def doctor
+      checks = Doctor.new(root: @cwd).call
+      checks.each { |check| @output.puts("#{check.name}: #{check.status} #{check.message}") }
+      checks.any? { |check| check.status == :fail } ? 1 : 0
+    end
+
+    def validate
+      Validator.new(root: @cwd).call
+      @output.puts("Product Factory installation is valid")
+      0
+    end
+
+    def test
+      command = %w[bundle exec rspec]
+      installation_path = File.join(@cwd, Installation::PATH)
+      if File.exist?(installation_path) || File.symlink?(installation_path)
+        Validator.new(root: @cwd).call
+        command << ".product-factory/spec/runtime_spec.rb"
+      end
+      standard_output, standard_error, status = Open3.capture3(*command, chdir: @cwd)
+      @output.print(standard_output)
+      @error.print(standard_error)
+      status.exitstatus || 1
     end
   end
 end

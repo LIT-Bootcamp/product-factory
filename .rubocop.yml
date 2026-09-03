@@ -1,0 +1,50 @@
+plugins: rubocop-rspec
+
+AllCops:
+  CacheRootDirectory: tmp/rubocop_cache
+  NewCops: enable
+  SuggestExtensions: false
+  TargetRubyVersion: 4.0
+
+Style/Documentation:
+  Enabled: false
+
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+Metrics/AbcSize:
+  Max: 25
+  Exclude:
+    - "spec/**/*"
+
+Metrics/BlockLength:
+  Exclude:
+    - "spec/**/*"
+
+Metrics/ClassLength:
+  Max: 200
+
+Metrics/CyclomaticComplexity:
+  Max: 10
+
+Metrics/MethodLength:
+  Max: 25
+  Exclude:
+    - "spec/**/*"
+
+Metrics/ParameterLists:
+  CountKeywordArgs: false
+
+Metrics/PerceivedComplexity:
+  Max: 10
+
+RSpec/ExampleLength:
+  Max: 45
+
+RSpec/MultipleExpectations:
+  Max: 10
+
+RSpec/SpecFilePathFormat:
+  Exclude:
+    - "spec/end_to_end/**/*"
+    - "spec/product_factory/loading_spec.rb"

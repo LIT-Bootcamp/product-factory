@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "yaml"
 
 module ProductFactory
@@ -41,8 +43,8 @@ module ProductFactory
       new(data)
     rescue Errno::ENOENT
       raise ValidationError, "Missing #{PATH}"
-    rescue Psych::Exception => exception
-      raise ValidationError, "Invalid #{PATH}: #{exception.message}"
+    rescue Psych::Exception => e
+      raise ValidationError, "Invalid #{PATH}: #{e.message}"
     end
 
     def initialize(data)
@@ -50,18 +52,30 @@ module ProductFactory
 
       @data = stringify(data)
       @schema_version = @data["schema_version"]
+      validate_schema!
+      validate_mappings
+      validate_required_fields
+      validate_types
+      assign_sections
+    end
+
+    def to_h = @data.dup
+
+    private
+
+    def validate_schema!
       validate_type("schema_version", "an integer") { |value| value.is_a?(Integer) }
       raise ValidationError, "schema_version must equal 1" unless schema_version == 1
+    end
 
-      validate_mappings
-
+    def validate_required_fields
       REQUIRED.each do |path|
         value = fetch_path(path)
         raise ValidationError, "#{path} is required" if value.equal?(MISSING) || value.nil?
       end
+    end
 
-      validate_types
-
+    def assign_sections
       @product = @data.fetch("product")
       @github = @data.fetch("github")
       @research = @data.fetch("research")
@@ -70,10 +84,6 @@ module ProductFactory
       @qa = @data.fetch("qa", {})
       @knowledge = @data.fetch("knowledge", {})
     end
-
-    def to_h = @data.dup
-
-    private
 
     def fetch_path(path)
       path.split(".").reduce(@data) do |value, key|
@@ -103,7 +113,7 @@ module ProductFactory
         value.nil? || value.is_a?(String)
       end
       validate_type("knowledge.paths", "an array of strings") do |value|
-        value.is_a?(Array) && value.all? { |item| item.is_a?(String) }
+        value.is_a?(Array) && value.all?(String)
       end
     end
 

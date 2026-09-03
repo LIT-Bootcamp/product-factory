@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "json"
 
 module ProductFactory
@@ -8,26 +10,14 @@ module ProductFactory
       data = JSON.parse(File.read(path))
       raise ValidationError, "Invalid plan" unless data.is_a?(Hash)
 
+      from_h(data)
+    rescue JSON::ParserError, KeyError, TypeError, ArgumentError, SystemCallError => e
+      raise ValidationError, "Invalid plan: #{e.message}"
+    end
+
+    def self.from_h(data)
       target_root = data.fetch("target_root")
-      unless target_root.nil? || target_root.is_a?(String)
-        raise ValidationError, "Invalid plan"
-      end
-      serialized_operations = data.fetch("operations")
-      raise ValidationError, "Invalid plan" unless serialized_operations.is_a?(Array)
-
-      operations = serialized_operations.map do |item|
-        raise ValidationError, "Invalid plan" unless item.is_a?(Hash)
-
-        id = item.fetch("id")
-        operation = Operation.new(
-          kind: item.fetch("kind"),
-          target: item.fetch("target"),
-          attributes: item.fetch("attributes")
-        )
-        raise ValidationError, "Invalid plan operation ID" unless id.is_a?(String) && id == operation.id
-
-        operation
-      end
+      raise ValidationError, "Invalid plan" unless target_root.nil? || target_root.is_a?(String)
       raise ValidationError, "Invalid plan" unless data.fetch("run_id").is_a?(String)
       raise ValidationError, "Invalid plan" unless data.fetch("mode").is_a?(String)
       raise ValidationError, "Invalid plan" unless data.fetch("conflicts").is_a?(Array)
@@ -35,13 +25,31 @@ module ProductFactory
       new(
         run_id: data.fetch("run_id"),
         mode: data.fetch("mode"),
-        operations:,
+        operations: load_operations(data.fetch("operations")),
         conflicts: data.fetch("conflicts"),
         target_root:
       )
-    rescue JSON::ParserError, KeyError, TypeError, ArgumentError, SystemCallError => error
-      raise ValidationError, "Invalid plan: #{error.message}"
     end
+
+    def self.load_operations(items)
+      raise ValidationError, "Invalid plan" unless items.is_a?(Array)
+
+      items.map do |item|
+        raise ValidationError, "Invalid plan" unless item.is_a?(Hash)
+
+        operation = Operation.new(
+          kind: item.fetch("kind"),
+          target: item.fetch("target"),
+          attributes: item.fetch("attributes")
+        )
+        id = item.fetch("id")
+        raise ValidationError, "Invalid plan operation ID" unless id.is_a?(String) && id == operation.id
+
+        operation
+      end
+    end
+
+    private_class_method :from_h, :load_operations
 
     def initialize(run_id:, mode:, operations:, conflicts: [], target_root: nil)
       @run_id = immutable_json(run_id)
@@ -64,7 +72,7 @@ module ProductFactory
       }
     end
 
-    def write(path) = File.write(path, JSON.pretty_generate(to_h) + "\n")
+    def write(path) = File.write(path, "#{JSON.pretty_generate(to_h)}\n")
 
     private
 

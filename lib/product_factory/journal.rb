@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "json"
 require "time"
 
@@ -20,7 +22,7 @@ module ProductFactory
       record = event.transform_keys(&:to_s).merge("recorded_at" => @clock.call.utc.iso8601)
       validate_event!(record)
       open_file(File::WRONLY | File::CREAT | File::APPEND) do |file|
-        file.write(JSON.generate(record) + "\n")
+        file.write("#{JSON.generate(record)}\n")
         file.flush
         file.fsync
       end
@@ -44,7 +46,7 @@ module ProductFactory
     def completed_operation_ids(run_id)
       events.filter_map do |event|
         event["operation_id"] if event["event"] == "operation_completed" &&
-          event["run_id"] == run_id
+                                 event["run_id"] == run_id
       end
     end
 
@@ -66,9 +68,7 @@ module ProductFactory
       unless (required + ["recorded_at"]).all? { |key| event[key].is_a?(String) }
         raise ValidationError, "Invalid journal event"
       end
-      if event.key?("reason") && !event["reason"].is_a?(String)
-        raise ValidationError, "Invalid journal event"
-      end
+      raise ValidationError, "Invalid journal event" if event.key?("reason") && !event["reason"].is_a?(String)
       if event["event"] == "run_completed" && event["status"] != "success"
         raise ValidationError, "Invalid journal event"
       end

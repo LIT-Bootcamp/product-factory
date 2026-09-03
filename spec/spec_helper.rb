@@ -1,7 +1,12 @@
+# frozen_string_literal: true
+
 require "fileutils"
+require "open3"
 require "stringio"
 require "tmpdir"
-require_relative "../lib/product_factory"
+
+$LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
+require "product_factory"
 
 module SpecHelpers
   def in_tmp_repo
@@ -16,5 +21,17 @@ module SpecHelpers
 end
 
 RSpec.configure do |config|
+  config.disable_monkey_patching!
   config.include SpecHelpers
+  config.order = :random
+
+  config.expect_with :rspec do |expectations|
+    expectations.syntax = :expect
+  end
+
+  config.mock_with :rspec do |mocks|
+    mocks.verify_partial_doubles = true
+  end
+
+  Kernel.srand(config.seed)
 end

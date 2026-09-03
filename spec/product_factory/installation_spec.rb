@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe ProductFactory::Installation do
   it "loads missing state as empty and round-trips atomically" do
     in_tmp_repo do |root|
@@ -30,7 +32,7 @@ RSpec.describe ProductFactory::Installation do
       write(root, described_class::PATH, "--- !ruby/object:Object {}\n")
 
       expect { described_class.load(root) }
-        .to raise_error(ProductFactory::ValidationError, /Invalid \.product-factory\/installation\.yml/)
+        .to raise_error(ProductFactory::ValidationError, %r{Invalid \.product-factory/installation\.yml})
     end
   end
 

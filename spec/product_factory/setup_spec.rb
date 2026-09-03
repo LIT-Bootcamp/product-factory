@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe ProductFactory::Setup do
   it "generates timestamped run IDs with four random bytes" do
     random = double
@@ -112,7 +114,7 @@ RSpec.describe ProductFactory::Setup do
       write(target, ProductFactory::Config::PATH, seed.attributes.fetch("content_base64").unpack1("m0"))
 
       expect(setup.apply(plan)).to eq(:success)
-      expect(ProductFactory::Validator.new(root: target).call).to eq(true)
+      expect(ProductFactory::Validator.new(root: target).call).to be(true)
     end
   end
 
@@ -131,7 +133,7 @@ RSpec.describe ProductFactory::Setup do
       journal.append(event: "operation_completed", run_id: plan.run_id, operation_id: operation.id)
 
       expect(setup.apply(plan)).to eq(:success)
-      expect(ProductFactory::Validator.new(root: target).call).to eq(true)
+      expect(ProductFactory::Validator.new(root: target).call).to be(true)
     end
   end
 
@@ -149,7 +151,7 @@ RSpec.describe ProductFactory::Setup do
       journal.append(event: "operation_started", run_id: plan.run_id, operation_id: operation.id)
 
       expect(setup.apply(plan)).to eq(:success)
-      expect(ProductFactory::Validator.new(root: target).call).to eq(true)
+      expect(ProductFactory::Validator.new(root: target).call).to be(true)
     end
   end
 

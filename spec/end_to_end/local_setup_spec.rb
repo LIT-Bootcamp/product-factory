@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 RSpec.describe ProductFactory::Setup do
   def in_factory
     Dir.mktmpdir("product-factory-e2e-") do |temporary|
@@ -6,7 +8,8 @@ RSpec.describe ProductFactory::Setup do
       target = File.join(root, "target")
       FileUtils.mkdir_p([File.join(distribution, "templates"), target])
       FileUtils.cp_r(File.expand_path("../../lib", __dir__), distribution)
-      FileUtils.cp(File.expand_path("../../templates/config.yml", __dir__), File.join(distribution, "templates/config.yml"))
+      FileUtils.cp(File.expand_path("../../templates/config.yml", __dir__),
+                   File.join(distribution, "templates/config.yml"))
       FileUtils.cp_r(File.expand_path("../../templates/project", __dir__), File.join(distribution, "templates"))
       yield distribution, target
     end
@@ -55,7 +58,7 @@ RSpec.describe ProductFactory::Setup do
     in_factory do |distribution, target|
       install(distribution, target)
 
-      expect(ProductFactory::Validator.new(root: target).call).to eq(true)
+      expect(ProductFactory::Validator.new(root: target).call).to be(true)
     end
   end
 
@@ -89,9 +92,9 @@ RSpec.describe ProductFactory::Setup do
     in_factory do |distribution, target|
       install(distribution, target)
       File.delete(File.join(
-        target,
-        ".product-factory/runtime/templates/project/.product-factory/schemas/config-v1.yml"
-      ))
+                    target,
+                    ".product-factory/runtime/templates/project/.product-factory/schemas/config-v1.yml"
+                  ))
       _output, error, status = Open3.capture3(
         "bundle", "exec", "ruby", File.join(target, "bin/product-factory"), "plan",
         chdir: target
@@ -107,7 +110,7 @@ RSpec.describe ProductFactory::Setup do
     in_factory do |distribution, target|
       install(distribution, target)
       source = schema_path(File.join(distribution, "templates/project"))
-      File.write(source, File.read(source) + "# upstream\n")
+      File.write(source, "#{File.read(source)}# upstream\n")
 
       setup = setup_for(distribution, target)
       expect(setup.apply(setup.plan)).to eq(:success)
@@ -120,10 +123,10 @@ RSpec.describe ProductFactory::Setup do
       install(distribution, target)
       source = schema_path(File.join(distribution, "templates/project"))
       destination = schema_path(target)
-      File.write(source, File.read(source) + "# upstream\n")
+      File.write(source, "#{File.read(source)}# upstream\n")
       setup = setup_for(distribution, target)
       plan = setup.plan
-      File.write(destination, File.read(destination) + "# late local edit\n")
+      File.write(destination, "#{File.read(destination)}# late local edit\n")
 
       expect { setup.apply(plan) }
         .to raise_error(ProductFactory::ConflictError, /changed since plan/)
@@ -135,7 +138,7 @@ RSpec.describe ProductFactory::Setup do
     in_factory do |distribution, target|
       install(distribution, target)
       destination = schema_path(target)
-      File.write(destination, File.read(destination) + "# local\n")
+      File.write(destination, "#{File.read(destination)}# local\n")
 
       plan = setup_for(distribution, target).plan
 
@@ -151,13 +154,15 @@ RSpec.describe ProductFactory::Setup do
       conflicted_source = schema_path(File.join(distribution, "templates/project"), "installation-v1.yml")
       conflicted_target = schema_path(target, "installation-v1.yml")
       original_upstream_only = File.read(schema_path(target))
-      File.write(upstream_only, File.read(upstream_only) + "# upstream\n")
-      File.write(conflicted_source, File.read(conflicted_source) + "# upstream\n")
-      File.write(conflicted_target, File.read(conflicted_target) + "# local\n")
+      File.write(upstream_only, "#{File.read(upstream_only)}# upstream\n")
+      File.write(conflicted_source, "#{File.read(conflicted_source)}# upstream\n")
+      File.write(conflicted_target, "#{File.read(conflicted_target)}# local\n")
       setup = setup_for(distribution, target)
       plan = setup.plan
 
-      expect(plan.conflicts.map { |conflict| conflict.fetch("path") }).to include(".product-factory/schemas/installation-v1.yml")
+      expect(plan.conflicts.map do |conflict|
+        conflict.fetch("path")
+      end).to include(".product-factory/schemas/installation-v1.yml")
       expect { setup.apply(plan) }.to raise_error(ProductFactory::ConflictError)
       expect(File.read(schema_path(target))).to eq(original_upstream_only)
     end
@@ -169,8 +174,8 @@ RSpec.describe ProductFactory::Setup do
       relative = ".product-factory/schemas/config-v1.yml"
       source = schema_path(File.join(distribution, "templates/project"))
       destination = schema_path(target)
-      File.write(source, File.read(source) + "# upstream\n")
-      File.write(destination, File.read(destination) + "# local\n")
+      File.write(source, "#{File.read(source)}# upstream\n")
+      File.write(destination, "#{File.read(destination)}# local\n")
       setup = setup_for(distribution, target)
       plan = setup.plan(resolutions: { relative => "take_upstream" })
 
@@ -194,7 +199,9 @@ RSpec.describe ProductFactory::Setup do
       fail_once = true
       handler = ProductFactory::Executor::Handler.new(
         apply: lambda do |operation|
-          raise ProductFactory::Error, "interrupted" if operation.target == "three" && fail_once.tap { fail_once = false }
+          if operation.target == "three" && fail_once.tap { fail_once = false }
+            raise ProductFactory::Error, "interrupted"
+          end
 
           applied << operation.target
         end,
@@ -249,17 +256,17 @@ RSpec.describe ProductFactory::Setup do
 
   it "never changes target Git history or remotes" do
     in_factory do |distribution, target|
-      expect(system("git", "init", "-q", target)).to eq(true)
+      expect(system("git", "init", "-q", target)).to be(true)
       File.write(File.join(target, "README.md"), "target\n")
-      expect(system("git", "-C", target, "add", "README.md")).to eq(true)
+      expect(system("git", "-C", target, "add", "README.md")).to be(true)
       expect(system(
-        "git", "-C", target,
-        "-c", "user.name=Product Factory Test",
-        "-c", "user.email=factory@example.test",
-        "-c", "commit.gpgsign=false",
-        "commit", "-qm", "Initial"
-      )).to eq(true)
-      expect(system("git", "-C", target, "remote", "add", "origin", "https://example.test/product.git")).to eq(true)
+               "git", "-C", target,
+               "-c", "user.name=Product Factory Test",
+               "-c", "user.email=factory@example.test",
+               "-c", "commit.gpgsign=false",
+               "commit", "-qm", "Initial"
+             )).to be(true)
+      expect(system("git", "-C", target, "remote", "add", "origin", "https://example.test/product.git")).to be(true)
       head = IO.popen(["git", "-C", target, "rev-parse", "HEAD"], &:read)
       remote = IO.popen(["git", "-C", target, "remote", "get-url", "origin"], &:read)
 

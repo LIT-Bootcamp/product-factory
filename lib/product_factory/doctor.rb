@@ -1,9 +1,9 @@
+# frozen_string_literal: true
+
 require "open3"
 
 module ProductFactory
   class Doctor
-    Check = Data.define(:name, :status, :message)
-
     def initialize(root:, command_runner: nil)
       @root = File.expand_path(root)
       @command_runner = command_runner || method(:capture)
@@ -19,8 +19,8 @@ module ProductFactory
     def capture(*command)
       output, error, status = Open3.capture3(*command)
       [status.success?, (output + error).strip]
-    rescue SystemCallError => exception
-      [false, exception.message]
+    rescue SystemCallError => e
+      [false, e.message]
     end
 
     def ruby_check
@@ -45,8 +45,8 @@ module ProductFactory
 
       Config.load(@root)
       Check.new("config", :pass, "readable")
-    rescue ValidationError => exception
-      Check.new("config", :fail, exception.message)
+    rescue ValidationError => e
+      Check.new("config", :fail, e.message)
     end
 
     def installation_check
@@ -56,8 +56,8 @@ module ProductFactory
 
       Installation.load(@root)
       Check.new("installation", :pass, "readable")
-    rescue ValidationError => exception
-      Check.new("installation", :fail, exception.message)
+    rescue ValidationError => e
+      Check.new("installation", :fail, e.message)
     end
 
     def knowledge_check
@@ -65,9 +65,10 @@ module ProductFactory
 
       paths = Config.load(@root).knowledge.fetch("paths", [])
       missing = paths.reject { |path| knowledge_path?(path) }
-      Check.new("knowledge", missing.empty? ? :pass : :fail, missing.empty? ? "present" : "missing: #{missing.join(", ")}")
-    rescue ValidationError => exception
-      Check.new("knowledge", :fail, exception.message)
+      Check.new("knowledge", missing.empty? ? :pass : :fail,
+                missing.empty? ? "present" : "missing: #{missing.join(', ')}")
+    rescue ValidationError => e
+      Check.new("knowledge", :fail, e.message)
     end
 
     def knowledge_path?(relative_path)
