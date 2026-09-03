@@ -12,7 +12,10 @@ module ProductFactory
       unless target_root.nil? || target_root.is_a?(String)
         raise ValidationError, "Invalid plan"
       end
-      operations = data.fetch("operations").map do |item|
+      serialized_operations = data.fetch("operations")
+      raise ValidationError, "Invalid plan" unless serialized_operations.is_a?(Array)
+
+      operations = serialized_operations.map do |item|
         raise ValidationError, "Invalid plan" unless item.is_a?(Hash)
 
         id = item.fetch("id")

@@ -91,6 +91,16 @@ RSpec.describe ProductFactory::Plan do
 
       expect { described_class.load(tampered) }
         .to raise_error(ProductFactory::ValidationError, /operation ID/)
+
+      write(root, "invalid-shape.json", JSON.generate(
+        "run_id" => "RUN-1",
+        "mode" => "setup",
+        "operations" => nil,
+        "conflicts" => [],
+        "target_root" => root
+      ))
+      expect { described_class.load(File.join(root, "invalid-shape.json")) }
+        .to raise_error(ProductFactory::ValidationError, /Invalid plan/)
     end
   end
 end

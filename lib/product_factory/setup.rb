@@ -6,6 +6,12 @@ require "tmpdir"
 
 module ProductFactory
   class Setup
+    LEGACY_MANAGED_PREFIXES = %w[
+      .product-factory/runtime/
+      .product-factory/schemas/
+      .product-factory/spec/
+    ].freeze
+
     attr_reader :plan_path
 
     def self.from_cli(cwd:, input:, output:)
@@ -29,15 +35,18 @@ module ProductFactory
     def plan(resolutions: {})
       validate_target!
       installation = Installation.load(@target_root)
+      sources = managed_sources
+      installed_hashes = installation.managed_file_hashes
+      validate_installed_hashes!(installed_hashes, current_targets: sources.keys)
       installed = File.exist?(File.join(@target_root, Installation::PATH))
       mode = installed ? "refresh" : "setup"
       Config.load(@target_root) if File.exist?(File.join(@target_root, Config::PATH))
       run_id = RunId.generate(clock: @clock)
 
-      managed = ManagedFiles.new(sources: managed_sources)
+      managed = ManagedFiles.new(sources:)
       result = managed.plan(
         target_root: @target_root,
-        installed_hashes: installation.managed_file_hashes,
+        installed_hashes:,
         resolutions:
       )
       operations = result.fetch(:operations)
@@ -298,7 +307,10 @@ module ProductFactory
       raise ValidationError, "plan target does not match setup target" unless plan.target_root == @target_root
 
       installation = Installation.load(@target_root)
-      managed_targets = managed_sources.keys | installation.managed_file_hashes.keys
+      sources = managed_sources
+      installed_hashes = installation.managed_file_hashes
+      validate_installed_hashes!(installed_hashes, current_targets: sources.keys)
+      managed_targets = sources.keys | installed_hashes.keys
       operations = plan.operations
       seed_operations = operations.select { |operation| operation.kind == "seed_config" }
       managed_operations = operations.select { |operation| %w[write_file delete_file].include?(operation.kind) }
@@ -321,7 +333,8 @@ module ProductFactory
         unless operation.target == Installation::PATH && operation.attributes.is_a?(Hash)
           raise ValidationError, "plan has invalid installation state"
         end
-        Installation.new(operation.attributes)
+        state = Installation.new(operation.attributes)
+        validate_installed_hashes!(state.managed_file_hashes, current_targets: sources.keys)
       end
 
       return if operations.empty?
@@ -347,6 +360,25 @@ module ProductFactory
       attributes.fetch("content_base64").unpack1("m0")
     rescue ArgumentError
       raise ValidationError, "plan has invalid managed operation"
+    end
+
+    def validate_installed_hashes!(hashes, current_targets:)
+      valid = hashes.is_a?(Hash) && hashes.all? do |path, hash|
+        path.is_a?(String) && hash.is_a?(String) && hash.match?(/\A[0-9a-f]{64}\z/) &&
+          managed_target?(path, current_targets:)
+      end
+      raise ValidationError, "installation has invalid managed file hash" unless valid
+    end
+
+    def managed_target?(path, current_targets:)
+      parts = path.split(File::SEPARATOR, -1)
+      safe = !path.empty? && !path.start_with?(File::SEPARATOR) &&
+        parts.none? { |part| part.empty? || part == "." || part == ".." }
+      safe && (
+        current_targets.include?(path) ||
+        path == "bin/product-factory" ||
+        LEGACY_MANAGED_PREFIXES.any? { |prefix| path.start_with?(prefix) }
+      )
     end
   end
 end

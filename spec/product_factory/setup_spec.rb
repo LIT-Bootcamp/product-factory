@@ -71,6 +71,19 @@ RSpec.describe ProductFactory::Setup do
     end
   end
 
+  it "rejects unowned paths injected through installation state" do
+    in_tmp_repo do |target|
+      write(target, ProductFactory::Config::PATH, File.read(File.expand_path("../../templates/config.yml", __dir__)))
+      ProductFactory::Installation.empty.with(
+        "managed_file_hashes" => { ".git/config" => "a" * 64 }
+      ).write(target)
+
+      expect { build_setup(target).plan }
+        .to raise_error(ProductFactory::ValidationError, /invalid managed file hash/)
+      expect(File).not_to exist(File.join(target, ".product-factory-journal.jsonl"))
+    end
+  end
+
   it "rejects symlinked factory state" do
     in_tmp_repo do |target|
       outside = File.join(Dir.mktmpdir("product-factory-outside-"), "config.yml")
