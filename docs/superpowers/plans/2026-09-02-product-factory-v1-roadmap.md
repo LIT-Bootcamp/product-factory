@@ -35,6 +35,8 @@ Delivers:
 
 Exit proof: a marked sandbox repository can be provisioned, re-planned as a no-op, interrupted after any external operation, resumed without duplicates, and inspected against the design's exact resource contract.
 
+The release sandbox is private. An organization owner creates it and its first Wiki `Home` page once; normal CI never mutates it.
+
 ## Slice 3: Product context, inventory, and Ideation
 
 Delivers:

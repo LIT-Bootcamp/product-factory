@@ -54,3 +54,4 @@ RSpec/SpecFilePathFormat:
     GitHub: github
   Exclude:
     - "spec/integration/**/*"
+    - "spec/live/**/*"

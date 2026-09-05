@@ -94,6 +94,7 @@ The deterministic Ruby runtime exposes:
 
 ```text
 bin/product-factory doctor
+bin/product-factory setup
 bin/product-factory plan
 bin/product-factory apply
 bin/product-factory validate
@@ -782,7 +783,7 @@ Every Product Factory pull request runs:
 
 Skills use RED/GREEN pressure tests that first demonstrate a contract failure and then verify the corrected instruction.
 
-Release candidates run against the dedicated public repository `LIT-Bootcamp/product-factory-sandbox`:
+Release candidates run against the dedicated private repository `LIT-Bootcamp/product-factory-sandbox`. An organization owner creates the repository and its first Wiki `Home` page once:
 
 1. empty Rails project setup;
 2. setup no-op;
