@@ -1,11 +1,10 @@
 # frozen_string_literal: true
 
 module ProductFactory
-  class Setup
-    class TargetValidator
-      def self.call(root:) = new(root).call
-
-      def initialize(root)
+  module Setup
+    class TargetValidator < Service
+      def initialize(root:)
+        super()
         @root = root
       end
 

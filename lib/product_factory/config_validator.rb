@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module ProductFactory
-  class ConfigValidator
+  class ConfigValidator < Service
     REQUIRED = %w[
       product.name product.context_page product.inventory_page
       github.organization github.repository github.project_title
@@ -30,9 +30,8 @@ module ProductFactory
     ].freeze
     MISSING = Object.new.freeze
 
-    def self.call(data) = new(data).call
-
     def initialize(data)
+      super()
       raise ValidationError, "configuration must be a mapping" unless data.is_a?(Hash)
 
       @data = stringify(data)

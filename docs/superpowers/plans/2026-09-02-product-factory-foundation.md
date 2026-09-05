@@ -51,7 +51,7 @@ lib/product_factory/doctor.rb                 Environment checks
 lib/product_factory/errors.rb                 Expected error classes
 templates/config.yml                          Seed for initial human configuration
 templates/project/bin/product-factory         Installed executable entry point
-templates/project/.product-factory/spec/runtime_spec.rb
+templates/project/.product-factory/spec/integration_spec.rb
                                                Installed RSpec runtime contract
 templates/project/.product-factory/schemas/config-v1.yml
 templates/project/.product-factory/schemas/installation-v1.yml
@@ -813,7 +813,7 @@ RSpec.describe ProductFactory::Executor do
         applied << operation.target
       end
       verify = ->(operation) { applied.include?(operation.target) }
-      handler = ProductFactory::Executor::Handler.new(apply: apply, verify: verify)
+      handler = { apply: apply, verify: verify }
       executor = described_class.new(journal: journal, handlers: { "record" => handler })
 
       expect { executor.apply(plan) }.to raise_error(ProductFactory::Error, "interrupted")
@@ -849,7 +849,7 @@ Event forms:
 Before skipping a completed operation, call its handler's optional verifier:
 
 ```ruby
-Executor::Handler = Data.define(:apply, :verify)
+Handlers are hashes containing callable `apply` and `verify` values.
 ```
 
 `verify.call(operation)` returns true only when target state matches. A missing verifier is a configuration error. If verification fails, execute the operation again. Append started/completed/failed events around each call and a final run-completed event only after every operation verifies.
@@ -952,7 +952,7 @@ exit ProductFactory::CLI.start(ARGV)
 Create the installed RSpec runtime contract:
 
 ```ruby
-# templates/project/.product-factory/spec/runtime_spec.rb
+# templates/project/.product-factory/spec/integration_spec.rb
 runtime_lib = File.expand_path("../runtime/lib", __dir__)
 $LOAD_PATH.unshift(runtime_lib)
 require "product_factory"
@@ -995,8 +995,8 @@ A resumed confirmed plan does not ask again.
 Replace the two fail-closed handlers with:
 
 ```ruby
-"plan" => -> { Setup.from_cli(cwd:, input:, output:).plan_and_print(argv) },
-"apply" => -> { Setup.from_cli(cwd:, input:, output:).load_and_apply(argv.fetch(0)) }
+"plan" => -> { Setup::Runner.from_cli(cwd:, input:, output:).plan_and_print(argv) },
+"apply" => -> { Setup::Runner.from_cli(cwd:, input:, output:).load_and_apply(argv.fetch(0)) }
 ```
 
 Add tests that assert:
@@ -1104,7 +1104,7 @@ Validator checks:
 
 - `doctor`: print one line per check and return 1 if any check fails;
 - `validate`: print `Product Factory installation is valid` and return 0, otherwise the validation error and 1;
-- `test`: execute RSpec using argument arrays and return its status. In the distribution repository this is `bundle exec rspec`; in an installed project it is `bundle exec rspec .product-factory/spec/runtime_spec.rb`.
+- `test`: execute RSpec using argument arrays and return its status. In the distribution repository this is `bundle exec rspec`; in an installed project it is `bundle exec rspec .product-factory/spec/integration_spec.rb`.
 
 Installation fails validation if the installed test runner is absent; it never claims success without executing the check.
 
@@ -1133,7 +1133,7 @@ git commit -m "Validate Product Factory installations"
 ### Task 9: End-to-end local setup release gate
 
 **Files:**
-- Create: `spec/end_to_end/local_setup_spec.rb`
+- Create: `spec/integration/local_setup_spec.rb`
 - Create: `.github/workflows/ci.yml`
 - Create: `README.md`
 - Modify: `templates/config.yml`
@@ -1163,7 +1163,7 @@ Use a fake distribution directory copied from `templates/project`; never edit th
 
 - [ ] **Step 2: Run the E2E file and observe any missing behavior**
 
-Run: `bundle exec rspec spec/end_to_end/local_setup_spec.rb`
+Run: `bundle exec rspec spec/integration/local_setup_spec.rb`
 
 Expected before corrections: at least one assertion exposes any integration gap between Tasks 1-8. Record the exact failure in the commit body if the correction changes a public interface.
 

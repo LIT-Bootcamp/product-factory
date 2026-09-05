@@ -3,7 +3,7 @@ plugins: rubocop-rspec
 AllCops:
   CacheRootDirectory: tmp/rubocop_cache
   NewCops: enable
-  SuggestExtensions: false
+  SuggestExtensions: true
   TargetRubyVersion: 4.0
 
 Style/Documentation:
@@ -46,5 +46,4 @@ RSpec/MultipleExpectations:
 
 RSpec/SpecFilePathFormat:
   Exclude:
-    - "spec/end_to_end/**/*"
-    - "spec/product_factory/loading_spec.rb"
+    - "spec/integration/**/*"

@@ -1,11 +1,10 @@
 # frozen_string_literal: true
 
 module ProductFactory
-  class Setup
-    class PlanBuilder
-      def self.call(...) = new(...).call
-
+  module Setup
+    class PlanBuilder < Service
       def initialize(distribution:, target_root:, clock:, plan_validator:, resolutions:)
+        super()
         @distribution = distribution
         @target_root = target_root
         @clock = clock
@@ -47,7 +46,7 @@ module ProductFactory
 
       def config_operation
         Operation.new(
-          kind: "seed_config",
+          kind: Operation::SEED_CONFIG,
           target: Config::PATH,
           attributes: { "content_base64" => [@distribution.config_bytes].pack("m0") }
         )
@@ -64,7 +63,7 @@ module ProductFactory
           "last_successful_setup_run" => run_id,
           "pending_operations" => []
         ).to_h
-        operations << Operation.new(kind: "write_installation", target: Installation::PATH, attributes: state)
+        operations << Operation.new(kind: Operation::WRITE_INSTALLATION, target: Installation::PATH, attributes: state)
       end
 
       def installation_changed?(operations, installation, next_hashes)

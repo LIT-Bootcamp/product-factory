@@ -88,8 +88,8 @@ RSpec.describe ProductFactory::CLI do
   end
 
   it "returns conflict status when planning reports unresolved conflicts" do
-    setup = instance_double(ProductFactory::Setup)
-    allow(ProductFactory::Setup).to receive(:from_cli).and_return(setup)
+    setup = instance_double(ProductFactory::Setup::Runner)
+    allow(ProductFactory::Setup::Runner).to receive(:from_cli).and_return(setup)
     allow(setup).to receive(:plan_and_print).and_raise(ProductFactory::ConflictError, "plan has conflicts")
     error = StringIO.new
 

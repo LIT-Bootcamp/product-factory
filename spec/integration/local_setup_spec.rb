@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe ProductFactory::Setup do
+RSpec.describe ProductFactory::Setup::Runner do
   def in_factory
     Dir.mktmpdir("product-factory-e2e-") do |temporary|
       root = File.realpath(temporary)
@@ -85,6 +85,19 @@ RSpec.describe ProductFactory::Setup do
       expect(ProductFactory::Plan.load(plan_path).operations).to be_empty
     ensure
       File.delete(plan_path) if plan_path && File.exist?(plan_path)
+    end
+  end
+
+  it "runs the installed integration spec through the CLI" do
+    in_factory do |distribution, target|
+      install(distribution, target)
+      output, error, status = Open3.capture3(
+        "bundle", "exec", "ruby", File.join(target, "bin/product-factory"), "test",
+        chdir: target
+      )
+
+      expect(status).to be_success, error
+      expect(output).to include("2 examples, 0 failures")
     end
   end
 
@@ -197,7 +210,7 @@ RSpec.describe ProductFactory::Setup do
       plan = ProductFactory::Plan.new(run_id: "RUN-INTERRUPTED", mode: "setup", operations:)
       applied = []
       fail_once = true
-      handler = ProductFactory::Executor::Handler.new(
+      handler = {
         apply: lambda do |operation|
           if operation.target == "three" && fail_once.tap { fail_once = false }
             raise ProductFactory::Error, "interrupted"
@@ -206,7 +219,7 @@ RSpec.describe ProductFactory::Setup do
           applied << operation.target
         end,
         verify: ->(operation) { applied.include?(operation.target) }
-      )
+      }
       journal = ProductFactory::Journal.new(
         path: File.join(target, "journal.jsonl"),
         clock: -> { Time.utc(2026, 9, 3) }

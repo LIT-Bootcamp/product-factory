@@ -2,6 +2,11 @@
 
 module ProductFactory
   class Operation
+    WRITE_FILE = "write_file"
+    DELETE_FILE = "delete_file"
+    SEED_CONFIG = "seed_config"
+    WRITE_INSTALLATION = "write_installation"
+
     attr_reader :kind, :target, :attributes
 
     def initialize(kind:, target:, attributes: {})

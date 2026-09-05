@@ -9,8 +9,8 @@ module ProductFactory
 
       def apply(operation)
         case operation.kind
-        when "write_file" then write(operation)
-        when "delete_file" then delete(operation)
+        when Operation::WRITE_FILE then write(operation)
+        when Operation::DELETE_FILE then delete(operation)
         else raise ValidationError, "unsupported file-sync operation: #{operation.kind}"
         end
       end

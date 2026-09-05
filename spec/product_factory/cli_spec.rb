@@ -44,7 +44,7 @@ RSpec.describe ProductFactory::CLI do
         expect(error.string).to eq("err")
         expect(ProductFactory::Validator).to have_received(:call).with(root: root)
         expect(Open3).to have_received(:capture3)
-          .with("bundle", "exec", "rspec", ".product-factory/spec/runtime_spec.rb", chdir: root)
+          .with("bundle", "exec", "rspec", ProductFactory::FactoryFilesValidator::INTEGRATION_SPEC, chdir: root)
       end
     end
 

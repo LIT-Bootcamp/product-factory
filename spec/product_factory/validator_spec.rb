@@ -2,23 +2,8 @@
 
 RSpec.describe ProductFactory::Validator do
   def install_valid_factory(root, pending_operations: [])
-    write(root, ProductFactory::Config::PATH, File.read(File.expand_path("../../templates/config.yml", __dir__)))
-    factory_path = ".product-factory/runtime/lib/product_factory.rb"
-    runner_path = ".product-factory/spec/runtime_spec.rb"
-    write(root, factory_path, "factory\n")
-    write(root, runner_path, "RSpec.describe('runtime') { it { expect(true).to eq(true) } }\n")
-    ProductFactory::Installation.empty.with(
-      "factory_file_hashes" => {
-        factory_path => Digest::SHA256.hexdigest("factory\n"),
-        runner_path => Digest::SHA256.file(File.join(root, runner_path)).hexdigest
-      },
-      "pending_operations" => pending_operations,
-      "last_successful_setup_run" => "RUN-1"
-    ).write(root)
-    ProductFactory::Journal.new(
-      path: File.join(root, ".product-factory-journal.jsonl"),
-      clock: -> { Time.utc(2026, 9, 2) }
-    ).append(event: "run_completed", run_id: "RUN-1", status: "success")
+    installation = install_product_factory(root)
+    installation.with("pending_operations" => pending_operations).write(root) if pending_operations.any?
   end
 
   it "accepts a complete installation" do
@@ -81,10 +66,10 @@ RSpec.describe ProductFactory::Validator do
   it "rejects a missing installed test runner" do
     in_tmp_repo do |root|
       install_valid_factory(root)
-      File.delete(File.join(root, ".product-factory/spec/runtime_spec.rb"))
+      File.delete(File.join(root, ProductFactory::FactoryFilesValidator::INTEGRATION_SPEC))
 
       expect { described_class.new(root: root).call }
-        .to raise_error(ProductFactory::ValidationError, /runtime_spec.rb/)
+        .to raise_error(ProductFactory::ValidationError, /integration_spec.rb/)
     end
   end
 

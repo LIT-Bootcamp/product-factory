@@ -2,7 +2,10 @@
 
 module ProductFactory
   module FileSync
-    RESOLUTIONS = %w[keep_local take_upstream manual_merge].freeze
+    KEEP_LOCAL = "keep_local"
+    TAKE_UPSTREAM = "take_upstream"
+    MANUAL_MERGE = "manual_merge"
+    RESOLUTIONS = [KEEP_LOCAL, TAKE_UPSTREAM, MANUAL_MERGE].freeze
     TARGETS = ["bin/product-factory"].freeze
     TARGET_PREFIXES = %w[
       .product-factory/runtime/

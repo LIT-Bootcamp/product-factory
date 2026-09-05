@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module ProductFactory
-  module Doctor
+  class Service
+    def self.call(...) = new(...).call
   end
 end

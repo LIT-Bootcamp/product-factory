@@ -44,7 +44,7 @@ module ProductFactory
       end
     end
 
-    def setup = Setup.from_cli(cwd: @cwd, input: @input, output: @output)
+    def setup = Setup::Runner.from_cli(cwd: @cwd, input: @input, output: @output)
 
     def plan(arguments)
       setup.plan_and_print(arguments)
@@ -75,7 +75,7 @@ module ProductFactory
       installation_path = File.join(@cwd, Installation::PATH)
       if File.exist?(installation_path) || File.symlink?(installation_path)
         Validator.call(root: @cwd)
-        command << ".product-factory/spec/runtime_spec.rb"
+        command << FactoryFilesValidator::INTEGRATION_SPEC
       end
       standard_output, standard_error, status = Open3.capture3(*command, chdir: @cwd)
       @output.print(standard_output)

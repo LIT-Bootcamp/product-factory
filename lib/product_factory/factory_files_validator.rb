@@ -1,18 +1,17 @@
 # frozen_string_literal: true
 
 module ProductFactory
-  class FactoryFilesValidator
-    RUNTIME_SPEC = ".product-factory/spec/runtime_spec.rb"
-
-    def self.call(...) = new(...).call
+  class FactoryFilesValidator < Service
+    INTEGRATION_SPEC = ".product-factory/spec/integration_spec.rb"
 
     def initialize(root:, hashes:)
+      super()
       @root = root
       @hashes = hashes
     end
 
     def call
-      require_file(RUNTIME_SPEC)
+      require_file(INTEGRATION_SPEC)
       raise ValidationError, "factory file hashes must be a mapping" unless @hashes.is_a?(Hash)
 
       @hashes.each { |path, expected_hash| validate_file(path, expected_hash) }

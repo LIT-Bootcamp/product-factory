@@ -6,7 +6,7 @@ module ProductFactory
       lib/product_factory.rb
       templates/config.yml
       templates/project/bin/product-factory
-      templates/project/.product-factory/spec/runtime_spec.rb
+      templates/project/.product-factory/spec/integration_spec.rb
       templates/project/.product-factory/schemas/config-v1.yml
       templates/project/.product-factory/schemas/installation-v1.yml
     ].freeze

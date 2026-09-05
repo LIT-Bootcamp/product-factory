@@ -1,18 +1,31 @@
 # frozen_string_literal: true
 
-RSpec.describe ProductFactory::Setup do
-  it "generates timestamped run IDs with four random bytes" do
-    random = double
-    allow(random).to receive(:hex).with(4).and_return("deadbeef")
+RSpec.describe ProductFactory::Setup::Runner do
+  it "accepts both resolution option forms" do
+    in_tmp_repo do |target|
+      setup = build_setup(target)
+      plan = ProductFactory::Plan.new(run_id: "RUN-OPTIONS", mode: "refresh", operations: [])
+      allow(setup).to receive(:plan).and_return(plan)
 
-    expect(ProductFactory::RunId.generate(clock: -> { Time.utc(2026, 9, 2, 12, 34, 56) }, random:))
-      .to eq("RUN-20260902T123456Z-deadbeef")
+      setup.plan_and_print(["--resolve", "a.txt=keep_local"])
+      setup.plan_and_print(["--resolve=b.txt=take_upstream"])
+
+      expect(setup).to have_received(:plan).with(resolutions: { "a.txt" => "keep_local" })
+      expect(setup).to have_received(:plan).with(resolutions: { "b.txt" => "take_upstream" })
+    end
+  end
+
+  it "rejects an incomplete resolution option" do
+    in_tmp_repo do |target|
+      expect { build_setup(target).plan_and_print(["--resolve"]) }
+        .to raise_error(ProductFactory::UsageError, "resolve must be PATH=VALUE")
+    end
   end
 
   it "applies an initial setup, resumes without reconfirming, and plans the next refresh as a no-op" do
     in_tmp_repo do |target|
       setup = described_class.new(
-        distribution_root: File.expand_path("../..", __dir__),
+        distribution_root: FileHelpers::FACTORY_ROOT,
         target_root: target,
         input: StringIO.new("yes\n"),
         output: StringIO.new,
@@ -75,7 +88,8 @@ RSpec.describe ProductFactory::Setup do
 
   it "rejects unowned paths injected through installation state" do
     in_tmp_repo do |target|
-      write(target, ProductFactory::Config::PATH, File.read(File.expand_path("../../templates/config.yml", __dir__)))
+      template = File.join(FileHelpers::FACTORY_ROOT, "templates/config.yml")
+      write(target, ProductFactory::Config::PATH, File.read(template))
       ProductFactory::Installation.empty.with(
         "factory_file_hashes" => { ".git/config" => "a" * 64 }
       ).write(target)
@@ -203,7 +217,7 @@ RSpec.describe ProductFactory::Setup do
 
   def build_setup(target)
     described_class.new(
-      distribution_root: File.expand_path("../..", __dir__),
+      distribution_root: FileHelpers::FACTORY_ROOT,
       target_root: target,
       input: StringIO.new("yes\n"),
       output: StringIO.new,

@@ -2,10 +2,9 @@
 
 module ProductFactory
   module Doctor
-    class Runner
-      def self.call(...) = new(...).call
-
+    class Runner < Service
       def initialize(root:, command_runner: nil)
+        super()
         @root = File.expand_path(root)
         @command_runner = command_runner || method(:capture)
       end

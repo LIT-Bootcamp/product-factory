@@ -24,7 +24,7 @@ RSpec.describe ProductFactory::Executor do
         applied << operation.target
       end
       verify = ->(operation) { applied.include?(operation.target) }
-      handler = described_class::Handler.new(apply:, verify:)
+      handler = { apply:, verify: }
       executor = described_class.new(journal:, handlers: { "record" => handler })
 
       expect { executor.apply(plan) }.to raise_error(ProductFactory::Error, "interrupted")
@@ -54,10 +54,10 @@ RSpec.describe ProductFactory::Executor do
     in_tmp_repo do |root|
       journal = ProductFactory::Journal.new(path: File.join(root, "journal.jsonl"), clock: -> { Time.utc(2026, 9, 2) })
       calls = []
-      handler = described_class::Handler.new(
+      handler = {
         apply: ->(operation) { calls << operation.target },
         verify: ->(_operation) { true }
-      )
+      }
       plan = ProductFactory::Plan.new(
         run_id: "RUN-1",
         mode: "setup",
@@ -84,11 +84,11 @@ RSpec.describe ProductFactory::Executor do
         ]
       )
       handlers = {
-        "first" => described_class::Handler.new(
+        "first" => {
           apply: ->(operation) { calls << operation.target },
           verify: ->(_operation) { true }
-        ),
-        "second" => described_class::Handler.new(apply: ->(_operation) {}, verify: nil)
+        },
+        "second" => { apply: ->(_operation) {}, verify: nil }
       }
 
       expect { described_class.new(journal:, handlers:).apply(plan) }

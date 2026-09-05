@@ -14,7 +14,7 @@ module ProductFactory
       completed_ids = @journal.completed_operation_ids(plan.run_id)
 
       handlers.each do |operation, handler|
-        next if completed_ids.include?(operation.id) && handler.verify.call(operation)
+        next if completed_ids.include?(operation.id) && handler.fetch(:verify).call(operation)
 
         execute(plan.run_id, operation, handler)
       end
@@ -28,14 +28,12 @@ module ProductFactory
     def handler_for(operation)
       handler = @handlers[operation.kind]
       raise ValidationError, "unknown operation handler: #{operation.kind}" unless handler
-      unless handler.respond_to?(:apply) && handler.apply.respond_to?(:call)
-        raise ValidationError, "invalid handler for #{operation.kind}"
-      end
-      unless handler.respond_to?(:verify) && handler.verify.respond_to?(:call)
-        raise ValidationError, "missing verifier for #{operation.kind}"
-      end
+      raise ValidationError, "invalid handler for #{operation.kind}" unless handler[:apply].respond_to?(:call)
+      raise ValidationError, "missing verifier for #{operation.kind}" unless handler[:verify].respond_to?(:call)
 
       handler
+    rescue TypeError, NoMethodError
+      raise ValidationError, "invalid handler for #{operation.kind}"
     end
 
     def execute(run_id, operation, handler)
@@ -48,8 +46,8 @@ module ProductFactory
       started[:reason] = reason if reason.is_a?(String)
       @journal.append(started)
 
-      handler.apply.call(operation)
-      raise ValidationError, "verification failed for #{operation.id}" unless handler.verify.call(operation)
+      handler.fetch(:apply).call(operation)
+      raise ValidationError, "verification failed for #{operation.id}" unless handler.fetch(:verify).call(operation)
 
       @journal.append(
         event: "operation_completed",

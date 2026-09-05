@@ -1,10 +1,8 @@
 # frozen_string_literal: true
 
-runtime_lib = File.expand_path("../runtime/lib", __dir__)
-$LOAD_PATH.unshift(runtime_lib)
-require "product_factory"
+require_relative "../runtime/lib/product_factory"
 
-RSpec.describe "installed Product Factory runtime" do
+RSpec.describe "installed Product Factory integration" do
   let(:project_root) { File.expand_path("../..", __dir__) }
 
   it "loads the project's configuration" do

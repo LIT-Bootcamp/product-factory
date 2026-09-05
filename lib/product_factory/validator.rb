@@ -1,10 +1,9 @@
 # frozen_string_literal: true
 
 module ProductFactory
-  class Validator
-    def self.call(...) = new(...).call
-
+  class Validator < Service
     def initialize(root:)
+      super()
       @root = File.expand_path(root)
     end
 
@@ -14,7 +13,7 @@ module ProductFactory
       installation = Installation.load(@root)
 
       validate_installation(installation)
-      CredentialLeakValidator.call(config:, installation:)
+      validate_credentials(config, installation)
       true
     end
 
@@ -41,6 +40,26 @@ module ProductFactory
         event["event"] == "run_completed" && event["run_id"] == run_id && event["status"] == "success"
       end
       raise ValidationError, "journal has no successful setup run for installation" unless valid
+    end
+
+    def validate_credentials(config, installation)
+      credentials = config.qa.fetch("credential_env", {}).values
+                          .grep(String)
+                          .filter_map { |name| ENV.fetch(name, nil) }
+                          .reject(&:empty?)
+      stored_values = strings_in([config.to_h, installation.to_h])
+      return unless credentials.any? { |credential| stored_values.any? { |value| value.include?(credential) } }
+
+      raise ValidationError, "credential value is stored in factory state"
+    end
+
+    def strings_in(value)
+      case value
+      when Hash then value.flat_map { |key, item| strings_in(key) + strings_in(item) }
+      when Array then value.flat_map { |item| strings_in(item) }
+      when String then [value]
+      else []
+      end
     end
   end
 end
