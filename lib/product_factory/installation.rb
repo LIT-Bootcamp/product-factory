@@ -37,6 +37,8 @@ module ProductFactory
 
     def factory_version = @data["factory_version"]
     def factory_file_hashes = mutable_copy(@data["factory_file_hashes"])
+    def github_resource_hashes = mutable_copy(@data["github_resource_hashes"])
+    def wiki_page_hashes = mutable_copy(@data["wiki_page_hashes"])
     def pending_operations = mutable_copy(@data["pending_operations"])
     def to_h = mutable_copy(@data)
     def with(attributes) = self.class.new(@data.merge(attributes.transform_keys(&:to_s)))

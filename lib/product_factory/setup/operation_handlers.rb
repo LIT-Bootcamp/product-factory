@@ -3,27 +3,38 @@
 module ProductFactory
   module Setup
     class OperationHandlers
-      def initialize(target_root:)
+      def initialize(target_root:, github_writer: nil, github_state: nil, wiki_repository: nil)
         @root = target_root
         @files = FileSync::Target.new(root: target_root)
+        @github_writer = github_writer
+        @github_state = github_state
+        @wiki_repository = wiki_repository
       end
 
       def to_h
-        {
+        handlers = {
           Operation::WRITE_FILE => handler(
-            apply: ->(operation) { @files.apply(operation) },
-            verify: method(:factory_file?)
+            apply: ->(operation) { @files.apply(operation) }, verify: method(:factory_file?)
           ),
           Operation::DELETE_FILE => handler(
-            apply: ->(operation) { @files.apply(operation) },
-            verify: method(:factory_file_deleted?)
+            apply: ->(operation) { @files.apply(operation) }, verify: method(:factory_file_deleted?)
           ),
           Operation::SEED_CONFIG => handler(apply: method(:apply_config), verify: method(:config_matches?)),
           Operation::WRITE_INSTALLATION => handler(
-            apply: method(:apply_installation),
-            verify: method(:installation_matches?)
+            apply: method(:apply_installation), verify: method(:installation_matches?)
           )
         }
+        if @github_writer && @github_state
+          Operation::GITHUB_KINDS.each do |kind|
+            handlers[kind] = handler(apply: @github_writer.method(:apply), verify: @github_state.method(:matches?))
+          end
+        end
+        if @wiki_repository
+          handlers[Operation::SYNC_WIKI] = handler(
+            apply: @wiki_repository.method(:apply), verify: @wiki_repository.method(:matches?)
+          )
+        end
+        handlers
       end
 
       def validate_preconditions!(plan)
@@ -40,9 +51,7 @@ module ProductFactory
 
       private
 
-      def handler(apply:, verify:)
-        { apply:, verify: }
-      end
+      def handler(apply:, verify:) = { apply:, verify: }
 
       def factory_file?(operation)
         attributes = operation.attributes
@@ -53,9 +62,7 @@ module ProductFactory
         false
       end
 
-      def factory_file_deleted?(operation)
-        @files.state(operation.target).nil?
-      end
+      def factory_file_deleted?(operation) = @files.state(operation.target).nil?
 
       def apply_config(operation)
         validate_config!(operation)
@@ -104,13 +111,13 @@ module ProductFactory
 
       def apply_installation(operation)
         validate_installation!(operation)
-        Installation.new(operation.attributes).write(@root)
+        Installation.new(installation_state(operation)).write(@root)
       end
 
       def installation_matches?(operation)
         validate_installation!(operation)
         state = Installation.load(@root).to_h
-        return false unless state == operation.attributes
+        return false unless state == installation_state(operation)
 
         state.fetch("factory_file_hashes").all? { |path, hash| @files.hash(path) == hash }
       rescue Errno::ENOENT, ValidationError, KeyError, TypeError
@@ -121,6 +128,17 @@ module ProductFactory
         return if operation.target == Installation::PATH && operation.attributes.is_a?(Hash)
 
         raise ValidationError, "invalid installation operation"
+      end
+
+      def installation_state(operation)
+        return operation.attributes unless @github_state && @wiki_repository
+
+        operation.attributes.merge(
+          "github_resource_ids" => @github_state.resource_ids,
+          "github_resource_hashes" => @github_state.resource_hashes,
+          "wiki_page_hashes" => @wiki_repository.page_hashes,
+          "wiki_head" => @wiki_repository.head
+        )
       end
     end
   end

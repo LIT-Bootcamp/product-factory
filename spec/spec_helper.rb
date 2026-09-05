@@ -7,5 +7,7 @@ require "tmpdir"
 
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 require "product_factory"
+require_relative "support/fake_github"
+require_relative "support/fake_wiki"
 require_relative "support/file_helpers"
 require_relative "support/rspec"

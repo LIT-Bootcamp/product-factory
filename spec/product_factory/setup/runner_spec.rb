@@ -1,6 +1,82 @@
 # frozen_string_literal: true
 
 RSpec.describe ProductFactory::Setup::Runner do
+  it "runs first setup and then reports a no-op without another confirmation" do
+    in_tmp_repo do |target|
+      github = FakeGitHub.new
+      wiki = FakeWiki.new
+      first_output = StringIO.new
+      first = build_full_setup(target, github:, wiki:, input: StringIO.new("Bootcamper\nyes\n"), output: first_output)
+
+      expect(first.run([])).to eq(:success)
+      expect(github.issue_type_names).to eq(%w[Idea Epic Ticket])
+      expect(github.project.fetch("public")).to be(false)
+      expect(github.view_names).to eq(%w[Ideas Epics Tickets])
+      expect(first_output.string).to include("CREATE #{ProductFactory::Config::PATH}")
+      expect(first_output.string.scan("Apply this plan? [yes/no]").size).to eq(1)
+
+      second_output = StringIO.new
+      second = build_full_setup(target, github:, wiki:, input: StringIO.new, output: second_output)
+      expect(second.run([])).to eq(:success)
+      expect(second_output.string).to include("Product Factory is up to date")
+      expect(second_output.string).not_to include("Apply this plan?")
+    end
+  end
+
+  it "stops before every target mutation when Wiki preflight fails" do
+    in_tmp_repo do |target|
+      wiki = instance_double(FakeWiki)
+      failure = ProductFactory::ExternalFailure.new(
+        failed_rule: "wiki_home_required", responsible_component: "wiki prerequisite",
+        root_cause: "GitHub Wiki has no Home page", impact: "setup stopped",
+        recovery_action: "Create the Home page in GitHub Wiki, then rerun product-factory setup"
+      )
+      allow(wiki).to receive(:snapshot).and_raise(failure)
+      setup = build_full_setup(target, github: FakeGitHub.new, wiki:, input: StringIO.new("Bootcamper\n"))
+
+      expect { setup.run([]) }.to raise_error(failure)
+      expect(Dir.children(target)).to be_empty
+    end
+  end
+
+  it "persists and resumes the confirmed plan without asking again" do
+    in_tmp_repo do |target|
+      github = FakeGitHub.new(fail_once_after: ProductFactory::Operation::ENSURE_PROJECT)
+      wiki = FakeWiki.new
+      first = build_full_setup(target, github:, wiki:, input: StringIO.new("Bootcamper\nyes\n"))
+
+      expect { first.run([]) }.to raise_error(ProductFactory::ExternalFailure, "simulated interruption")
+      plans = Dir.glob(File.join(target, ".product-factory/runs/*.json"))
+      expect(plans.size).to eq(1)
+
+      output = StringIO.new
+      resumed = build_full_setup(target, github:, wiki:, input: StringIO.new, output:)
+      expect(resumed.run([])).to eq(:success)
+      expect(output.string).to include("Resuming ")
+      expect(output.string).not_to include("Apply this plan?")
+      expect(github.project.fetch("title")).to eq("Bootcamper Product Factory")
+    end
+  end
+
+  it "rejects an unknown adoption key before planning" do
+    in_tmp_repo do |target|
+      setup = build_full_setup(target, github: FakeGitHub.new, wiki: FakeWiki.new)
+
+      expect { setup.run(["--adopt", "everything"]) }
+        .to raise_error(ProductFactory::UsageError, "unknown adoption: everything")
+      expect(Dir.children(target)).to be_empty
+    end
+  end
+
+  it "requires the full semantic adoption key" do
+    in_tmp_repo do |target|
+      setup = build_full_setup(target, github: FakeGitHub.new, wiki: FakeWiki.new)
+
+      expect { setup.run(["--adopt", "Idea"]) }
+        .to raise_error(ProductFactory::UsageError, "unknown adoption: Idea")
+    end
+  end
+
   it "accepts both resolution option forms" do
     in_tmp_repo do |target|
       setup = build_setup(target)
@@ -222,6 +298,24 @@ RSpec.describe ProductFactory::Setup::Runner do
       input: StringIO.new("yes\n"),
       output: StringIO.new,
       clock: -> { Time.utc(2026, 9, 2) }
+    )
+  end
+
+  def build_full_setup(target, github:, wiki:, input: StringIO.new("Bootcamper\nyes\n"), output: StringIO.new)
+    status = instance_double(Process::Status, success?: true, exitstatus: 0)
+    shell = instance_double(ProductFactory::StreamShell)
+    allow(shell).to receive(:capture3).and_return(["git@github.com:LIT-Bootcamp/bootcamper.git\n", "", status])
+    described_class.new(
+      distribution_root: FileHelpers::FACTORY_ROOT,
+      target_root: target,
+      input:,
+      output:,
+      clock: -> { Time.utc(2026, 9, 5) },
+      shell:,
+      github_client: github,
+      github_state: github,
+      github_writer: github,
+      wiki_repository: wiki
     )
   end
 end
