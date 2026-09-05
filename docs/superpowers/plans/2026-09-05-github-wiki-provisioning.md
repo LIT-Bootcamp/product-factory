@@ -822,7 +822,7 @@ mise exec -- bundle exec rspec spec/product_factory/setup/configuration_spec.rb 
 Always read `git remote get-url origin` through `StreamShell`, support GitHub HTTPS and SSH URLs, and validate the derived `owner/repository` with `GitHub::Client#get("repos/{owner}/{repository}")`. When config exists, require its owner/repository to equal that detected remote and return `Config.load` plus its exact bytes. Otherwise prompt exactly:
 
 ```text
-Product name [Bootcamper]: 
+Product name [Bootcamper]:
 ```
 
 Parse `templates/config.yml`, replace product name and the three GitHub values, validate with `Config.new`, then return the object, `YAML.dump(data)`, and the validated repository response. Derive the default Project title from the repository name, not the product-name answer, using `repository.tr("-_", "  ").split.map(&:capitalize).join(" ")`. Do not write the file in this service.

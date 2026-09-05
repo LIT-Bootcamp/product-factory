@@ -3,6 +3,8 @@
 module ProductFactory
   module GitHub
     class Writer
+      DEFAULT_STATUS_OPTIONS = ["Todo", "In Progress", "Done"].freeze
+
       def initialize(config:, client:, state:)
         @github = config.github
         @client = client
@@ -73,16 +75,13 @@ module ProductFactory
       end
 
       def create_field(project, desired)
-        body = { "name" => desired.fetch("name"), "data_type" => desired.fetch("type").upcase }
+        body = { "name" => desired.fetch("name"), "data_type" => desired.fetch("type") }
         body["single_select_options"] = desired.fetch("options") if desired["type"] == "single_select"
         @client.post("orgs/#{organization}/projectsV2/#{project.fetch('number')}/fields", body)
       end
 
       def update_field(project, current, desired)
-        input = {
-          "projectId" => project.fetch("id"), "fieldId" => current["node_id"] || current.fetch("id"),
-          "name" => desired.fetch("name"), "dataType" => desired.fetch("type").upcase
-        }
+        input = { "fieldId" => current["node_id"] || current.fetch("id"), "name" => desired.fetch("name") }
         if desired["type"] == "single_select"
           input["singleSelectOptions"] = Payloads.select_options(project, current, desired)
         end
@@ -105,14 +104,12 @@ module ProductFactory
       end
 
       def create_view(project, desired)
-        body = Payloads.view_data(project, desired, "id").merge(
-          "name" => desired.fetch("name"), "layout" => "table_layout"
-        )
+        body = Payloads.rest_view(project, desired).merge("name" => desired.fetch("name"), "layout" => "table")
         @client.post("orgs/#{organization}/projectsV2/#{project.fetch('number')}/views", body)
       end
 
       def update_view(project, current, desired)
-        input = Payloads.view_data(project, desired, "node_id").merge(
+        input = Payloads.graphql_view(project, desired).merge(
           "viewId" => current.fetch("id"), "name" => desired.fetch("name"), "layout" => "TABLE_LAYOUT"
         )
         @client.graphql(Mutations::UPDATE_VIEW, "input" => input)
@@ -126,6 +123,7 @@ module ProductFactory
         expected = operation.attributes["expected_fingerprint"]
         return if current.nil? && expected.nil?
         return if expected.nil? && temporary_project?(operation, current)
+        return if expected.nil? && default_status?(operation, current)
         return if current && State.fingerprint(current) == expected
 
         raise ConflictError, "#{operation.target} changed after planning"
@@ -134,6 +132,12 @@ module ProductFactory
       def temporary_project?(operation, current)
         operation.target == "github:project" && current &&
           current["title"] == temporary_title(operation.attributes.fetch("desired"))
+      end
+
+      def default_status?(operation, current)
+        operation.target == "github:field:Status" && current["type"] == "single_select" &&
+          current.fetch("options", []).map { |option| option["name"] } == DEFAULT_STATUS_OPTIONS &&
+          project_state.fetch("item_count").zero?
       end
 
       def desired?(current, operation)

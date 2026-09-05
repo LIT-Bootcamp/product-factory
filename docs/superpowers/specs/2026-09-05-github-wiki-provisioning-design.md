@@ -1,7 +1,9 @@
 # Product Factory GitHub and Wiki Provisioning Design
 
-**Status:** Approved in conversation  
-**Date:** 2026-09-05  
+**Status:** Approved in conversation
+
+**Date:** 2026-09-05
+
 **Scope:** Product Factory roadmap Slice 2
 
 ## Purpose

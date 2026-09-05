@@ -68,7 +68,7 @@ class FakeGitHub
   end
 
   def add_project(desired)
-    children = @project ? @project.slice("fields", "views") : { "fields" => [], "views" => [] }
+    children = @project ? @project.slice("fields", "views") : default_project_children
     @project = desired.merge(
       "id" => "P_1", "number" => 1, "item_count" => 0, "closed" => false, **children
     )
@@ -77,7 +77,18 @@ class FakeGitHub
   def add_child(collection, desired)
     items = @project.fetch(collection)
     items.reject! { |item| item["name"] == desired["name"] }
+    items.reject! { |item| collection == "views" && desired["name"] == "Ideas" && item["name"] == "View 1" }
     items << desired.merge("id" => "#{collection}_#{items.length + 1}", "node_id" => "N_#{items.length + 1}")
+  end
+
+  def default_project_children
+    {
+      "fields" => [{
+        "id" => "fields_1", "node_id" => "STATUS", "name" => "Status", "type" => "single_select",
+        "options" => ["Todo", "In Progress", "Done"].map { |name| { "id" => name, "name" => name } }
+      }],
+      "views" => [{ "id" => "views_1", "node_id" => "VIEW_1", "name" => "View 1" }]
+    }
   end
 
   def resources(collection)

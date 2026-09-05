@@ -25,10 +25,16 @@ module ProductFactory
         raise ValidationError, "missing Project view field: #{e.key}"
       end
 
-      def view_data(project, desired, id_key)
-        ids = view_fields(project, desired.fetch("visible_fields"), id_key)
-        key = id_key == "id" ? "visible_fields" : "visibleFields"
-        { "filter" => desired.fetch("filter"), key => ids }
+      def rest_view(project, desired)
+        {
+          "filter" => desired.fetch("filter"),
+          "visible_fields" => view_fields(project, desired.fetch("visible_fields"), "id")
+        }
+      end
+
+      def graphql_view(project, desired)
+        ids = view_fields(project, desired.fetch("visible_fields"), "node_id")
+        { "filter" => desired.fetch("filter"), "configuration" => { "visibleFieldIds" => ids } }
       end
     end
   end

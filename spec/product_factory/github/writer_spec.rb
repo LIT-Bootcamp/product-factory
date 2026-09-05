@@ -108,7 +108,8 @@ RSpec.describe ProductFactory::GitHub::Writer do
 
   %w[text date number single_select].each do |type|
     it "creates a #{type} Project field" do
-      desired = { "name" => "Example", "type" => type, "options" => [] }
+      options = type == "single_select" ? [{ "name" => "One", "color" => "BLUE", "description" => "First" }] : []
+      desired = { "name" => "Example", "type" => type, "options" => options }
       operation = build_operation(ProductFactory::Operation::ENSURE_PROJECT_FIELD, "github:field:Example", desired)
       allow(state).to receive(:resource).with(operation.target, refresh: true).and_return(nil)
       allow(state).to receive(:resource).with("github:project", refresh: true).and_return(project_state)
@@ -118,9 +119,35 @@ RSpec.describe ProductFactory::GitHub::Writer do
 
       expect(client).to have_received(:post).with(
         "orgs/LIT-Bootcamp/projectsV2/2/fields",
-        hash_including("name" => "Example", "data_type" => type.upcase)
+        { "name" => "Example", "data_type" => type }.tap do |payload|
+          payload["single_select_options"] = options if type == "single_select"
+        end
       )
     end
+  end
+
+  it "replaces the empty Project's automatic Status field" do
+    current = {
+      "id" => 20, "node_id" => "F_1", "name" => "Status", "type" => "single_select",
+      "options" => ["Todo", "In Progress", "Done"].map { |name| { "id" => name, "name" => name } }
+    }
+    desired = {
+      "name" => "Status", "type" => "single_select",
+      "options" => [{ "name" => "Created", "color" => "GRAY", "description" => "New" }]
+    }
+    operation = build_operation(ProductFactory::Operation::ENSURE_PROJECT_FIELD, "github:field:Status", desired)
+    allow(state).to receive(:resource).with(operation.target, refresh: true).and_return(current)
+    allow(state).to receive(:resource).with("github:project", refresh: true).and_return(project_state)
+    allow(client).to receive(:graphql).and_return("data" => {})
+
+    expect(writer.apply(operation)).to be(true)
+    expect(client).to have_received(:graphql).with(
+      a_string_including("updateProjectV2Field"),
+      "input" => {
+        "fieldId" => "F_1", "name" => "Status",
+        "singleSelectOptions" => [{ "name" => "Created", "color" => "GRAY", "description" => "New" }]
+      }
+    )
   end
 
   it "preserves matching option IDs while updating a select field" do
@@ -141,9 +168,10 @@ RSpec.describe ProductFactory::GitHub::Writer do
 
     expect(client).to have_received(:graphql).with(
       a_string_including("updateProjectV2Field"),
-      "input" => hash_including(
+      "input" => {
+        "fieldId" => "F_1", "name" => "Priority",
         "singleSelectOptions" => [hash_including("id" => "O_1", "name" => "P1", "description" => "Highest")]
-      )
+      }
     )
   end
 
@@ -175,10 +203,10 @@ RSpec.describe ProductFactory::GitHub::Writer do
 
     expect(client).to have_received(:graphql).with(
       a_string_including("updateProjectV2View"),
-      "input" => hash_including(
+      "input" => {
         "viewId" => "V_1", "name" => "Ideas", "layout" => "TABLE_LAYOUT",
-        "visibleFields" => %w[TITLE STATUS]
-      )
+        "filter" => "type:\"Idea\"", "configuration" => { "visibleFieldIds" => %w[TITLE STATUS] }
+      }
     )
   end
 
@@ -194,7 +222,10 @@ RSpec.describe ProductFactory::GitHub::Writer do
 
     expect(client).to have_received(:post).with(
       "orgs/LIT-Bootcamp/projectsV2/2/views",
-      hash_including("name" => "Epics", "filter" => "type:\"Epic\"", "visible_fields" => [1, 2])
+      {
+        "name" => "Epics", "layout" => "table", "filter" => "type:\"Epic\"",
+        "visible_fields" => [1, 2]
+      }
     )
   end
 

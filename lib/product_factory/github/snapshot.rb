@@ -3,27 +3,6 @@
 module ProductFactory
   module GitHub
     class Snapshot < Service
-      QUERY = <<~GRAPHQL
-        query($organization:String!, $repository:String!, $cursor:String) {
-          viewer { login }
-          organization(login:$organization) {
-            id
-            projectsV2(first:100, after:$cursor) {
-              nodes {
-                id number title shortDescription public closed
-                items { totalCount }
-                repositories(first:100) { nodes { nameWithOwner } }
-                views(first:100) {
-                  nodes { id number name layout filter visibleFields(first:100) { nodes { name } } updatedAt }
-                }
-              }
-              pageInfo { hasNextPage endCursor }
-            }
-          }
-          repository(owner:$organization, name:$repository) { id name nameWithOwner }
-        }
-      GRAPHQL
-
       def initialize(config:, client:)
         super()
         @github = config.github
@@ -60,7 +39,7 @@ module ProductFactory
         cursor = nil
         loop do
           variables = { "organization" => organization, "repository" => repository, "cursor" => cursor }
-          data = @client.graphql(QUERY, variables).fetch("data")
+          data = @client.graphql(Queries::SNAPSHOT, variables).fetch("data")
           page = data.dig("organization", "projectsV2") || {}
           projects.concat(page.fetch("nodes", []))
           return [data, projects] unless page.dig("pageInfo", "hasNextPage")
@@ -71,13 +50,15 @@ module ProductFactory
 
       def project_data(item)
         number = item.fetch("number")
+        relevant = relevant_project?(item)
+        fields = relevant ? project_fields(number) : []
         {
           "id" => item.fetch("id"), "number" => number, "title" => item.fetch("title"),
           "short_description" => item["shortDescription"], "public" => item.fetch("public"),
           "closed" => item.fetch("closed"), "item_count" => item.dig("items", "totalCount"),
           "repositories" => item.dig("repositories", "nodes").to_a.map { |repo| repo.fetch("nameWithOwner") }.sort,
-          "fields" => relevant_project?(item) ? project_fields(number) : [],
-          "views" => item.dig("views", "nodes").to_a.map { |view| view_data(view) }
+          "fields" => fields,
+          "views" => relevant ? project_views(number) : []
         }
       end
 
@@ -88,16 +69,30 @@ module ProductFactory
           {
             "id" => field.fetch("id"), "node_id" => field["node_id"], "name" => field.fetch("name"),
             "type" => field.fetch("data_type").downcase,
-            "options" => field.fetch("options", []).map { |option| option.slice("id", "name", "color", "description") }
+            "options" => field.fetch("options", []).map { |option| option_data(option) }
           }
         end
       end
 
+      def option_data(option)
+        option.slice("id", "color").merge(
+          "name" => raw_text(option["name"]), "description" => raw_text(option["description"])
+        )
+      end
+
+      def raw_text(value) = value.is_a?(Hash) ? value.fetch("raw") : value
+
+      def project_views(number)
+        response = @client.graphql(Queries::VIEWS, "organization" => organization, "number" => number)
+        response.dig("data", "organization", "projectV2", "views", "nodes").to_a.map { |view| view_data(view) }
+      end
+
       def view_data(view)
+        fields = view.dig("configuration", "visibleFields", "nodes").to_a
         {
           "id" => view.fetch("id"), "number" => view.fetch("number"), "name" => view.fetch("name"),
           "layout" => view.fetch("layout").delete_suffix("_LAYOUT"), "filter" => view["filter"].to_s,
-          "visible_fields" => view.dig("visibleFields", "nodes").to_a.map { |field| field.fetch("name") }
+          "visible_fields" => fields.map { |field| field.fetch("name") }
         }
       end
 
@@ -118,15 +113,13 @@ module ProductFactory
       end
 
       def validate_membership!(membership)
-        return if membership["state"] == "active" && membership["role"] == "admin"
-
-        raise failure("active organization admin membership is required")
+        valid = membership["state"] == "active" && membership["role"] == "admin"
+        raise failure("active organization admin membership is required") unless valid
       end
 
       def validate_repository!(data)
-        return if data && data["nameWithOwner"] == "#{organization}/#{repository}"
-
-        raise failure("configured repository does not match GitHub")
+        valid = data && data["nameWithOwner"] == "#{organization}/#{repository}"
+        raise failure("configured repository does not match GitHub") unless valid
       end
 
       def failure(cause)

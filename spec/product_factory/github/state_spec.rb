@@ -7,7 +7,10 @@ RSpec.describe ProductFactory::GitHub::State do
   let(:client) { instance_double(ProductFactory::GitHub::Client) }
 
   before do
-    allow(client).to receive_messages(auth_status: true, graphql: graphql_response)
+    allow(client).to receive(:auth_status).and_return(true)
+    allow(client).to receive(:graphql) do |query, _variables|
+      query == ProductFactory::GitHub::Queries::VIEWS ? views_response : graphql_response
+    end
     allow(client).to receive(:get) do |endpoint|
       case endpoint
       when "user/memberships/orgs/LIT-Bootcamp"
@@ -21,7 +24,10 @@ RSpec.describe ProductFactory::GitHub::State do
           "name" => "Priority",
           "data_type" => "SINGLE_SELECT",
           "updated_at" => "ignored",
-          "options" => [{ "id" => "O_1", "name" => "P1", "color" => "RED", "description" => "Highest" }]
+          "options" => [{
+            "id" => "O_1", "name" => { "html" => "<strong>P1</strong>", "raw" => "P1" }, "color" => "RED",
+            "description" => { "html" => "<p>Highest</p>", "raw" => "Highest" }
+          }]
         }]
       else
         raise "unexpected GET #{endpoint}"
@@ -40,6 +46,14 @@ RSpec.describe ProductFactory::GitHub::State do
       "number" => 2,
       "title" => "Bootcamper Product Factory",
       "public" => false
+    )
+    expect(state.resource("github:field:Priority").fetch("options")).to eq(
+      [{ "id" => "O_1", "name" => "P1", "color" => "RED", "description" => "Highest" }]
+    )
+    expect(state.resource("github:view:Ideas").fetch("visible_fields")).to eq(["Priority"])
+    expect(client).to have_received(:graphql).with(
+      ProductFactory::GitHub::Queries::VIEWS,
+      "organization" => "LIT-Bootcamp", "number" => 2
     )
   end
 
@@ -89,13 +103,7 @@ RSpec.describe ProductFactory::GitHub::State do
               "closed" => false,
               "items" => { "totalCount" => 0 },
               "repositories" => { "nodes" => [{ "nameWithOwner" => "LIT-Bootcamp/bootcamper" }] },
-              "views" => {
-                "nodes" => [{
-                  "id" => "V_1", "number" => 1, "name" => "Ideas", "layout" => "TABLE_LAYOUT",
-                  "filter" => "type:\"Idea\"", "visibleFields" => { "nodes" => [{ "name" => "Title" }] },
-                  "updatedAt" => "ignored"
-                }]
-              }
+              "views" => { "nodes" => [] }
             }],
             "pageInfo" => { "hasNextPage" => false, "endCursor" => nil }
           }
@@ -105,12 +113,33 @@ RSpec.describe ProductFactory::GitHub::State do
     }
   end
 
+  def views_response
+    {
+      "data" => {
+        "organization" => {
+          "projectV2" => {
+            "views" => {
+              "nodes" => [{
+                "id" => "V_1", "number" => 1, "name" => "Ideas", "layout" => "TABLE_LAYOUT",
+                "filter" => "type:\"Idea\"",
+                "configuration" => { "visibleFields" => { "nodes" => [{ "name" => "Priority" }] } }
+              }]
+            }
+          }
+        }
+      }
+    }
+  end
+
   def reordered_client
     instance_double(ProductFactory::GitHub::Client).tap do |other|
       allow(other).to receive_messages(
-        auth_status: true,
-        graphql: JSON.parse(JSON.generate(graphql_response), object_class: Hash)
+        auth_status: true
       )
+      allow(other).to receive(:graphql) do |query, _variables|
+        response = query == ProductFactory::GitHub::Queries::VIEWS ? views_response : graphql_response
+        JSON.parse(JSON.generate(response), object_class: Hash)
+      end
       allow(other).to receive(:get) do |endpoint|
         value = client.get(endpoint)
         value.is_a?(Array) ? value.map { |item| item.to_a.reverse.to_h.merge("updated_at" => "different") } : value
