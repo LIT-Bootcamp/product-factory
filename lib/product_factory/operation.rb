@@ -10,6 +10,7 @@ module ProductFactory
     ENSURE_PROJECT = "ensure_project"
     ENSURE_PROJECT_FIELD = "ensure_project_field"
     ENSURE_PROJECT_VIEW = "ensure_project_view"
+    SYNC_WIKI = "sync_wiki"
     GITHUB_KINDS = [ENSURE_ISSUE_TYPE, ENSURE_PROJECT, ENSURE_PROJECT_FIELD, ENSURE_PROJECT_VIEW].freeze
 
     attr_reader :kind, :target, :attributes
