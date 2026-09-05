@@ -60,9 +60,22 @@ module ProductFactory
         run_id:,
         operation_id: operation.id,
         error_class: e.class.name,
-        message: e.message
+        message: e.message,
+        **failure_details(e, operation)
       )
       raise
+    end
+
+    def failure_details(error, operation)
+      return error.to_h if error.is_a?(ExternalFailure)
+
+      {
+        failed_rule: "operation_execution",
+        responsible_component: "product_factory",
+        root_cause: error.message,
+        impact: "#{operation.target} was not verified",
+        recovery_action: "rerun product-factory setup"
+      }
     end
   end
 end

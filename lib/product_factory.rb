@@ -13,7 +13,7 @@ require "yaml"
 require "zeitwerk"
 
 loader = Zeitwerk::Loader.for_gem
-loader.inflector.inflect("cli" => "CLI")
+loader.inflector.inflect("cli" => "CLI", "github" => "GitHub")
 loader.setup
 
 module ProductFactory

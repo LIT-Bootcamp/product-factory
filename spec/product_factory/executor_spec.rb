@@ -50,6 +50,31 @@ RSpec.describe ProductFactory::Executor do
     end
   end
 
+  it "journals the responsible component and recovery for external failures" do
+    in_tmp_repo do |root|
+      journal = ProductFactory::Journal.new(path: File.join(root, "journal.jsonl"), clock: -> { Time.utc(2026, 9, 5) })
+      operation = ProductFactory::Operation.new(kind: "record", target: "github:project")
+      plan = ProductFactory::Plan.new(run_id: "RUN-1", mode: "setup", operations: [operation])
+      failure = ProductFactory::ExternalFailure.new(
+        failed_rule: "github_request",
+        responsible_component: "github",
+        root_cause: "request failed",
+        impact: "github:project was not verified",
+        recovery_action: "rerun product-factory setup"
+      )
+      handler = { apply: ->(_item) { raise failure }, verify: ->(_item) { false } }
+
+      expect { described_class.new(journal:, handlers: { "record" => handler }).apply(plan) }.to raise_error(failure)
+      expect(journal.events.last).to include(
+        "failed_rule" => "github_request",
+        "responsible_component" => "github",
+        "root_cause" => "request failed",
+        "impact" => "github:project was not verified",
+        "recovery_action" => "rerun product-factory setup"
+      )
+    end
+  end
+
   it "rejects conflicted plans before invoking handlers" do
     in_tmp_repo do |root|
       journal = ProductFactory::Journal.new(path: File.join(root, "journal.jsonl"), clock: -> { Time.utc(2026, 9, 2) })

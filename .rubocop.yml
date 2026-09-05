@@ -45,5 +45,7 @@ RSpec/MultipleExpectations:
   Max: 10
 
 RSpec/SpecFilePathFormat:
+  CustomTransform:
+    GitHub: github
   Exclude:
     - "spec/integration/**/*"
