@@ -6,6 +6,11 @@ module ProductFactory
     DELETE_FILE = "delete_file"
     SEED_CONFIG = "seed_config"
     WRITE_INSTALLATION = "write_installation"
+    ENSURE_ISSUE_TYPE = "ensure_issue_type"
+    ENSURE_PROJECT = "ensure_project"
+    ENSURE_PROJECT_FIELD = "ensure_project_field"
+    ENSURE_PROJECT_VIEW = "ensure_project_view"
+    GITHUB_KINDS = [ENSURE_ISSUE_TYPE, ENSURE_PROJECT, ENSURE_PROJECT_FIELD, ENSURE_PROJECT_VIEW].freeze
 
     attr_reader :kind, :target, :attributes
 
