@@ -38,6 +38,11 @@ Metrics/ParameterLists:
 Metrics/PerceivedComplexity:
   Max: 10
 
+Naming/PredicateMethod:
+  AllowedMethods:
+    - apply
+    - call
+
 RSpec/ExampleLength:
   Max: 45
 

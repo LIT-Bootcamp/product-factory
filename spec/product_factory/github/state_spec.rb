@@ -50,6 +50,16 @@ RSpec.describe ProductFactory::GitHub::State do
     expect(reordered).to eq(first)
   end
 
+  it "finds a Project left under its temporary marker title" do
+    response = Marshal.load(Marshal.dump(graphql_response))
+    project = response.dig("data", "organization", "projectsV2", "nodes", 0)
+    project["title"] = "Bootcamper Product Factory [product-factory:v1:project:LIT-Bootcamp/bootcamper]"
+    project["shortDescription"] = nil
+    allow(client).to receive(:graphql).and_return(response)
+
+    expect(state.resource("github:project")).to include("id" => "P_2")
+  end
+
   private
 
   def product_config

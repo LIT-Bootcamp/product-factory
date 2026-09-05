@@ -52,8 +52,12 @@ module ProductFactory
       private
 
       def project
-        snapshot.fetch("projects").find { |item| item["short_description"].to_s.include?(marker) } ||
+        snapshot.fetch("projects").find { |item| marked?(item) } ||
           snapshot.fetch("projects").find { |item| item["title"] == @github.fetch("project_title") }
+      end
+
+      def marked?(project)
+        project["short_description"].to_s.include?(marker) || project["title"].to_s.include?("[#{marker}]")
       end
 
       def resources(collection)

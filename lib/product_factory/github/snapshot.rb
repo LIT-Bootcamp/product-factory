@@ -113,7 +113,8 @@ module ProductFactory
       def marker = "product-factory:v1:project:#{organization}/#{repository}"
 
       def relevant_project?(item)
-        item["title"] == @github.fetch("project_title") || item["shortDescription"].to_s.include?(marker)
+        item["title"] == @github.fetch("project_title") ||
+          item["shortDescription"].to_s.include?(marker) || item["title"].to_s.include?("[#{marker}]")
       end
 
       def validate_membership!(membership)
