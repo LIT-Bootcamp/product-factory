@@ -9,6 +9,9 @@ module ProductFactory
       "installed_at" => nil,
       "installed_by" => nil,
       "github_resource_ids" => {},
+      "github_resource_hashes" => {},
+      "wiki_page_hashes" => {},
+      "wiki_head" => nil,
       "factory_file_hashes" => {},
       "last_successful_setup_run" => nil,
       "pending_operations" => []
