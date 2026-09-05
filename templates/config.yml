@@ -1,0 +1,53 @@
+schema_version: 1
+
+product:
+  name: Example Product
+  context_page: Product-Context
+  inventory_page: Product-Inventory
+  max_active_ideas: 10
+
+github:
+  organization: example-org
+  repository: example-repo
+  project_title: Example Product Factory
+
+research:
+  freshness_days: 30
+
+workflow:
+  clarification_rounds: 3
+  claim_lease_minutes: 60
+  max_ticket_human_hours: 16
+
+agents:
+  ideator:
+    model: configured-model
+    reasoning: high
+  business_analyst:
+    model: configured-model
+    reasoning: high
+  technical_lead:
+    model: configured-model
+    reasoning: high
+  manual_qa:
+    model: configured-model
+    reasoning: high
+
+qa:
+  local_url: http://127.0.0.1:3000
+  start_command: bin/dev
+  setup_command: bin/rails db:prepare
+  staging_url:
+  credential_env:
+    student: FACTORY_STUDENT_CREDENTIALS
+    mentor: FACTORY_MENTOR_CREDENTIALS
+    admin: FACTORY_ADMIN_CREDENTIALS
+
+knowledge:
+  paths:
+    - AGENTS.md
+    - README.md
+    - docs/architecture
+    - Gemfile.lock
+    - db/schema.rb
+    - .github/workflows

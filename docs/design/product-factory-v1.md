@@ -223,12 +223,12 @@ knowledge:
 
 Agent model and reasoning effort are configured exactly per role. Setup suggests currently available high-quality defaults but does not silently rewrite explicit choices.
 
-`.product-factory/installation.yml` is machine-managed and records:
+Product Factory owns `.product-factory/installation.yml`. It records:
 
 - installed factory version;
 - installation time and actor;
 - GitHub resource IDs;
-- managed-file hashes;
+- hashes of files installed by Product Factory;
 - last successful setup run;
 - pending resumable operations.
 
@@ -777,7 +777,7 @@ Every Product Factory pull request runs:
 - GitHub operation-plan tests;
 - setup and refresh migration tests;
 - interrupted-operation resume tests;
-- managed-file conflict tests;
+- factory-file conflict tests;
 - a simulated zero-LLM end-to-end flow.
 
 Skills use RED/GREEN pressure tests that first demonstrate a contract failure and then verify the corrected instruction.
@@ -787,7 +787,7 @@ Release candidates run against the dedicated public repository `LIT-Bootcamp/pro
 1. empty Rails project setup;
 2. setup no-op;
 3. refresh from an older release;
-4. managed-file conflict;
+4. factory-file conflict;
 5. interrupted apply and resume;
 6. Product Inventory;
 7. Ideation;

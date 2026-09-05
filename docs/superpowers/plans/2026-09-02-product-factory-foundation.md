@@ -4,16 +4,21 @@
 
 **Goal:** Build the deterministic Ruby runtime and a safe, resumable local setup/refresh flow that later GitHub and agent slices can extend without changing its contracts.
 
-**Architecture:** A small Ruby CLI loads validated YAML, derives immutable operations, writes through an append-only JSONL journal, and applies managed files atomically. Planning is pure and mutation-free; apply consumes the saved plan after one confirmation, verifies each result, and resumes completed operations by stable ID.
+**Architecture:** A small Ruby CLI loads validated YAML, derives immutable operations, writes through an append-only JSONL journal, and synchronizes Product Factory files atomically. Planning is pure and mutation-free; apply consumes the saved plan after one confirmation, verifies each result, and resumes completed operations by stable ID.
 
-**Tech Stack:** Ruby 3.2+, Ruby standard library (`yaml`, `json`, `digest`, `fileutils`, `tempfile`, `open3`, `optparse`, `time`), Minitest, Rake
+**Tech Stack:** Ruby 4.0.6, Thor 1.5.0, Ruby standard library (`yaml`, `json`, `digest`, `fileutils`, `tempfile`, `open3`, `time`), RSpec, Rake
 
 **Spec:** `docs/design/product-factory-v1.md`
 
 ## Global Constraints
 
-- Support Ruby 3.2 or newer.
-- Use no runtime gem dependency and no Rails dependency.
+- Use Ruby 4.0.6, the latest stable release when this plan was approved.
+- Use Thor 1.5.x for the command interface; Rails already depends on Thor, so installed Rails projects gain no separate CLI stack.
+- Use RSpec only; Minitest is forbidden.
+- Load `spec_helper` once through `.rspec`; individual specs do not require it.
+- Use `described_class` instead of repeating the class under test.
+- Do not add FactoryBot in Slice 1 because the runtime has no domain model fixtures.
+- Use no runtime gem dependency other than Thor and no Rails runtime coupling.
 - Do not invoke an LLM or mutate GitHub in this slice.
 - `plan` performs no filesystem mutation in the target repository.
 - `apply` requires one explicit confirmation unless a previously confirmed run is being resumed.
@@ -30,6 +35,8 @@
 ```text
 Gemfile                                      Development dependencies only
 Rakefile                                     Default test task
+.ruby-version                                Exact Ruby runtime
+.rspec                                       RSpec output and load-path defaults
 bin/product-factory                          Executable entry point
 lib/product_factory.rb                       Version and requires
 lib/product_factory/cli.rb                   Command parsing and user-facing exit codes
@@ -38,18 +45,18 @@ lib/product_factory/installation.rb          Machine state loading and atomic pe
 lib/product_factory/operation.rb             Immutable operation value object
 lib/product_factory/plan.rb                  Immutable plan value object and JSON format
 lib/product_factory/journal.rb                Append-only run event store
-lib/product_factory/managed_files.rb          Three-way local file planner and atomic writer
+lib/product_factory/file_sync/                Three-way file planning and atomic writes
 lib/product_factory/setup.rb                  Detect, plan, confirm, apply, verify orchestration
 lib/product_factory/doctor.rb                 Environment checks
 lib/product_factory/errors.rb                 Expected error classes
 templates/config.yml                          Seed for initial human configuration
 templates/project/bin/product-factory         Installed executable entry point
-templates/project/.product-factory/runtime/test/run.rb
-                                               Installed zero-dependency runtime check
+templates/project/.product-factory/spec/integration_spec.rb
+                                               Installed RSpec runtime contract
 templates/project/.product-factory/schemas/config-v1.yml
 templates/project/.product-factory/schemas/installation-v1.yml
-test/test_helper.rb                           Temporary repository helpers
-test/product_factory/*_test.rb                Focused behavior tests
+spec/spec_helper.rb                           Temporary repository helpers
+spec/product_factory/*_spec.rb                Focused behavior specs
 ```
 
 Public interfaces introduced here are intentionally concrete. Later slices add operation handlers to `Setup`; they do not introduce a generic plugin framework.
@@ -61,12 +68,14 @@ Public interfaces introduced here are intentionally concrete. Later slices add o
 **Files:**
 - Create: `Gemfile`
 - Create: `Rakefile`
+- Create: `.ruby-version`
+- Create: `.rspec`
 - Create: `bin/product-factory`
 - Create: `lib/product_factory.rb`
 - Create: `lib/product_factory/cli.rb`
 - Create: `lib/product_factory/errors.rb`
-- Create: `test/test_helper.rb`
-- Test: `test/product_factory/cli_test.rb`
+- Create: `spec/spec_helper.rb`
+- Test: `spec/product_factory/cli_spec.rb`
 
 **Interfaces:**
 - Produces: `ProductFactory::CLI.start(argv, input:, output:, error:, cwd:) -> Integer`
@@ -75,33 +84,32 @@ Public interfaces introduced here are intentionally concrete. Later slices add o
 - [ ] **Step 1: Add the failing CLI contract test**
 
 ```ruby
-# test/product_factory/cli_test.rb
-require_relative "../test_helper"
-
-class CLITest < Minitest::Test
-  def test_version_prints_version_and_succeeds
+# spec/product_factory/cli_spec.rb
+RSpec.describe ProductFactory::CLI do
+  describe ".start" do
+    it "prints the version and succeeds" do
     output = StringIO.new
 
-    status = ProductFactory::CLI.start(["--version"], output: output)
+      status = described_class.start(["--version"], output: output)
 
-    assert_equal 0, status
-    assert_equal "product-factory #{ProductFactory::VERSION}\n", output.string
-  end
+      expect(status).to eq(0)
+      expect(output.string).to eq("product-factory #{ProductFactory::VERSION}\n")
+    end
 
-  def test_unknown_command_is_an_expected_usage_error
-    error = StringIO.new
+    it "returns a usage error for an unknown command" do
+      error = StringIO.new
 
-    status = ProductFactory::CLI.start(["unknown"], error: error)
+      status = described_class.start(["unknown"], error: error)
 
-    assert_equal 64, status
-    assert_includes error.string, "Unknown command: unknown"
+      expect(status).to eq(64)
+      expect(error.string).to include("Unknown command: unknown")
+    end
   end
 end
 ```
 
 ```ruby
-# test/test_helper.rb
-require "minitest/autorun"
+# spec/spec_helper.rb
 require "stringio"
 require "tmpdir"
 require_relative "../lib/product_factory"
@@ -109,7 +117,7 @@ require_relative "../lib/product_factory"
 
 - [ ] **Step 2: Run the focused test and confirm RED**
 
-Run: `bundle exec ruby -Itest test/product_factory/cli_test.rb`
+Run: `bundle exec rspec spec/product_factory/cli_spec.rb`
 
 Expected: FAIL because `ProductFactory::CLI` is undefined.
 
@@ -134,9 +142,7 @@ module ProductFactory
     def self.start(argv, input: $stdin, output: $stdout, error: $stderr, cwd: Dir.pwd)
       return output.puts("product-factory #{VERSION}") || 0 if argv == ["--version"]
 
-      command = argv.shift
-      raise UsageError, "Unknown command: #{command}" unless COMMANDS.include?(command)
-      raise UsageError, "Command is not installed: #{command}"
+      Application.start(argv, output:, error:, cwd:)
     rescue UsageError => exception
       error.puts(exception.message)
       64
@@ -147,6 +153,8 @@ module ProductFactory
   end
 end
 ```
+
+`Application` is a Thor command class. Register `--version` as an alias for a `version` command, keep `doctor`, `plan`, `apply`, `validate`, and `test` as named fail-closed commands until their owning tasks replace them, and override Thor's failure behavior so `CLI.start` returns `64` for usage errors instead of terminating the Ruby process. Inject output/error streams through a small Thor shell adapter; never replace global `$stdout` or `$stderr`.
 
 ```ruby
 # lib/product_factory.rb
@@ -168,22 +176,34 @@ exit ProductFactory::CLI.start(ARGV)
 
 ```ruby
 # Rakefile
-require "rake/testtask"
+require "rspec/core/rake_task"
 
-Rake::TestTask.new do |task|
-  task.libs << "test"
-  task.pattern = "test/**/*_test.rb"
-end
+RSpec::Core::RakeTask.new(:spec)
 
-task default: :test
+task default: :spec
 ```
 
 ```ruby
 # Gemfile
 source "https://rubygems.org"
 
-gem "minitest", "~> 5.25"
+ruby "4.0.6"
+
 gem "rake", "~> 13.2"
+gem "rspec", "~> 3.13"
+gem "thor", "~> 1.5.0"
+```
+
+```text
+# .ruby-version
+4.0.6
+```
+
+```text
+# .rspec
+--require spec_helper
+--format documentation
+--color
 ```
 
 - [ ] **Step 4: Keep unfinished commands fail-closed**
@@ -212,7 +232,7 @@ Expected: tests PASS and output is `product-factory 0.1.0`.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Gemfile Rakefile bin lib test
+git add .ruby-version .rspec Gemfile Rakefile bin lib spec
 git commit -m "Add Product Factory Ruby CLI"
 ```
 
@@ -225,7 +245,7 @@ git commit -m "Add Product Factory Ruby CLI"
 - Create: `templates/config.yml`
 - Create: `templates/project/.product-factory/schemas/config-v1.yml`
 - Modify: `lib/product_factory.rb`
-- Test: `test/product_factory/config_test.rb`
+- Test: `spec/product_factory/config_spec.rb`
 
 **Interfaces:**
 - Produces: `ProductFactory::Config.load(root) -> Config`
@@ -235,11 +255,9 @@ git commit -m "Add Product Factory Ruby CLI"
 - [ ] **Step 1: Write failing tests for valid, missing, and unsafe YAML**
 
 ```ruby
-# test/product_factory/config_test.rb
-require_relative "../test_helper"
-
-class ConfigTest < Minitest::Test
-  def test_loads_v1_config_and_applies_fixed_defaults
+# spec/product_factory/config_spec.rb
+RSpec.describe ProductFactory::Config do
+  it "loads v1 config and applies fixed defaults" do
     in_tmp_repo do |root|
       write(root, ".product-factory/config.yml", <<~YAML)
         schema_version: 1
@@ -262,35 +280,35 @@ class ConfigTest < Minitest::Test
         knowledge: { paths: [AGENTS.md] }
       YAML
 
-      config = ProductFactory::Config.load(root)
+      config = described_class.load(root)
 
-      assert_equal 1, config.schema_version
-      assert_equal "Bootcamper", config.product.fetch("name")
-      assert_equal 16, config.workflow.fetch("max_ticket_human_hours")
+      expect(config.schema_version).to eq(1)
+      expect(config.product.fetch("name")).to eq("Bootcamper")
+      expect(config.workflow.fetch("max_ticket_human_hours")).to eq(16)
     end
   end
 
-  def test_rejects_missing_required_values
+  it "rejects missing required values" do
     in_tmp_repo do |root|
       write(root, ".product-factory/config.yml", "schema_version: 1\n")
 
-      error = assert_raises(ProductFactory::ValidationError) { ProductFactory::Config.load(root) }
-
-      assert_includes error.message, "product.name is required"
+      expect { described_class.load(root) }
+        .to raise_error(ProductFactory::ValidationError, /product\.name is required/)
     end
   end
 
-  def test_safe_load_rejects_ruby_objects
+  it "rejects Ruby objects through safe YAML loading" do
     in_tmp_repo do |root|
       write(root, ".product-factory/config.yml", "--- !ruby/object:Object {}\n")
 
-      assert_raises(ProductFactory::ValidationError) { ProductFactory::Config.load(root) }
+      expect { described_class.load(root) }
+        .to raise_error(ProductFactory::ValidationError)
     end
   end
 end
 ```
 
-Add helpers to `test/test_helper.rb`:
+Add helpers to `spec/spec_helper.rb`:
 
 ```ruby
 require "fileutils"
@@ -304,11 +322,17 @@ def write(root, relative_path, content)
   FileUtils.mkdir_p(File.dirname(path))
   File.write(path, content)
 end
+
+RSpec.configure do |config|
+  config.include SpecHelpers
+end
 ```
+
+Wrap both helper methods in `module SpecHelpers` before including the module.
 
 - [ ] **Step 2: Run the focused test and confirm RED**
 
-Run: `bundle exec ruby -Itest test/product_factory/config_test.rb`
+Run: `bundle exec rspec spec/product_factory/config_spec.rb`
 
 Expected: FAIL because `ProductFactory::Config` is undefined.
 
@@ -386,18 +410,18 @@ require_relative "product_factory/config"
 
 - [ ] **Step 4: Add the canonical template and schema description**
 
-Copy the exact approved YAML shape from design section 5 into `templates/config.yml`, using neutral sample values `Example Product`, `example-org`, and `example-repo`. This is a seed, not a managed file: setup writes it only when target configuration is absent, and later human edits are validated but never hash-restored. Store a documentation-only field contract in `config-v1.yml` with each path, type, required flag, and fixed default. `Config` remains the executable validator; no schema gem is introduced.
+Copy the exact approved YAML shape from design section 5 into `templates/config.yml`, using neutral sample values `Example Product`, `example-org`, and `example-repo`. This is a human-owned seed, not a factory file: setup writes it only when target configuration is absent, and later human edits are validated but never hash-restored. Store a documentation-only field contract in `config-v1.yml` with each path, type, required flag, and fixed default. `Config` remains the executable validator; no schema gem is introduced.
 
 - [ ] **Step 5: Run focused and full tests**
 
-Run: `bundle exec ruby -Itest test/product_factory/config_test.rb && bundle exec rake`
+Run: `bundle exec rspec spec/product_factory/config_spec.rb && bundle exec rake`
 
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib templates test
+git add lib templates spec
 git commit -m "Validate Product Factory configuration"
 ```
 
@@ -409,36 +433,34 @@ git commit -m "Validate Product Factory configuration"
 - Create: `lib/product_factory/installation.rb`
 - Create: `templates/project/.product-factory/schemas/installation-v1.yml`
 - Modify: `lib/product_factory.rb`
-- Test: `test/product_factory/installation_test.rb`
+- Test: `spec/product_factory/installation_spec.rb`
 
 **Interfaces:**
 - Produces: `Installation.load(root) -> Installation`
 - Produces: `Installation.empty -> Installation`
 - Produces: `Installation#write(root) -> void`
-- Produces: `Installation#managed_file_hashes -> Hash<String,String>`
+- Produces: `Installation#factory_file_hashes -> Hash<String,String>`
 - Produces: `Installation#with(attributes) -> Installation`
 
 - [ ] **Step 1: Write the failing round-trip and atomicity tests**
 
 ```ruby
-# test/product_factory/installation_test.rb
-require_relative "../test_helper"
-
-class InstallationTest < Minitest::Test
-  def test_missing_state_loads_as_empty_and_round_trips
+# spec/product_factory/installation_spec.rb
+RSpec.describe ProductFactory::Installation do
+  it "loads missing state as empty and round-trips atomically" do
     in_tmp_repo do |root|
-      installation = ProductFactory::Installation.load(root)
+      installation = described_class.load(root)
       installation = installation.with(
         "factory_version" => "0.1.0",
-        "managed_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "abc" }
+        "factory_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "abc" }
       )
 
       installation.write(root)
-      loaded = ProductFactory::Installation.load(root)
+      loaded = described_class.load(root)
 
-      assert_equal "0.1.0", loaded.factory_version
-      assert_equal({ ".product-factory/runtime/lib/product_factory.rb" => "abc" }, loaded.managed_file_hashes)
-      refute File.exist?(File.join(root, ".product-factory/installation.yml.tmp"))
+      expect(loaded.factory_version).to eq("0.1.0")
+      expect(loaded.factory_file_hashes).to eq({ ".product-factory/runtime/lib/product_factory.rb" => "abc" })
+      expect(File).not_to exist(File.join(root, ".product-factory/installation.yml.tmp"))
     end
   end
 end
@@ -446,7 +468,7 @@ end
 
 - [ ] **Step 2: Run the focused test and confirm RED**
 
-Run: `bundle exec ruby -Itest test/product_factory/installation_test.rb`
+Run: `bundle exec rspec spec/product_factory/installation_spec.rb`
 
 Expected: FAIL because `Installation` is undefined.
 
@@ -467,7 +489,7 @@ module ProductFactory
       "installed_at" => nil,
       "installed_by" => nil,
       "github_resource_ids" => {},
-      "managed_file_hashes" => {},
+      "factory_file_hashes" => {},
       "last_successful_setup_run" => nil,
       "pending_operations" => []
     }.freeze
@@ -489,7 +511,7 @@ module ProductFactory
     end
 
     def factory_version = @data["factory_version"]
-    def managed_file_hashes = @data["managed_file_hashes"].dup
+    def factory_file_hashes = @data["factory_file_hashes"].dup
     def pending_operations = @data["pending_operations"].dup
     def to_h = @data.dup
     def with(attributes) = self.class.new(@data.merge(attributes.transform_keys(&:to_s)))
@@ -518,7 +540,7 @@ Run: `bundle exec rake`
 Expected: PASS.
 
 ```bash
-git add lib templates test
+git add lib templates spec
 git commit -m "Persist Product Factory installation state"
 ```
 
@@ -530,7 +552,7 @@ git commit -m "Persist Product Factory installation state"
 - Create: `lib/product_factory/operation.rb`
 - Create: `lib/product_factory/plan.rb`
 - Modify: `lib/product_factory.rb`
-- Test: `test/product_factory/plan_test.rb`
+- Test: `spec/product_factory/plan_spec.rb`
 
 **Interfaces:**
 - Produces: `Operation.new(kind:, target:, attributes:)`
@@ -542,28 +564,26 @@ git commit -m "Persist Product Factory installation state"
 - [ ] **Step 1: Write failing determinism and round-trip tests**
 
 ```ruby
-# test/product_factory/plan_test.rb
-require_relative "../test_helper"
-
-class PlanTest < Minitest::Test
-  def test_operation_id_is_stable_across_hash_order
+# spec/product_factory/plan_spec.rb
+RSpec.describe ProductFactory::Plan do
+  it "keeps operation IDs stable across hash order" do
     first = ProductFactory::Operation.new(kind: "write_file", target: "a", attributes: { "b" => 2, "a" => 1 })
     second = ProductFactory::Operation.new(kind: "write_file", target: "a", attributes: { "a" => 1, "b" => 2 })
 
-    assert_equal first.id, second.id
+    expect(first.id).to eq(second.id)
   end
 
-  def test_plan_with_conflicts_cannot_apply
-    plan = ProductFactory::Plan.new(run_id: "RUN-1", mode: "refresh", operations: [], conflicts: [{ "path" => "a" }])
+  it "cannot apply a plan with conflicts" do
+    plan = described_class.new(run_id: "RUN-1", mode: "refresh", operations: [], conflicts: [{ "path" => "a" }])
 
-    refute plan.applicable?
+    expect(plan).not_to be_applicable
   end
 end
 ```
 
 - [ ] **Step 2: Run the focused test and confirm RED**
 
-Run: `bundle exec ruby -Itest test/product_factory/plan_test.rb`
+Run: `bundle exec rspec spec/product_factory/plan_spec.rb`
 
 Expected: FAIL because the value objects are undefined.
 
@@ -647,53 +667,50 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib test
+git add lib spec
 git commit -m "Add deterministic setup plans"
 ```
 
 ---
 
-### Task 5: Three-way managed-file planning
+### Task 5: Three-way factory-file planning
 
 **Files:**
-- Create: `lib/product_factory/managed_files.rb`
+- Create: `lib/product_factory/file_sync.rb`
 - Modify: `lib/product_factory.rb`
-- Test: `test/product_factory/managed_files_test.rb`
+- Test: `spec/product_factory/file_sync/planner_spec.rb`
 
 **Interfaces:**
-- Produces: `ManagedFiles.new(sources:)`, where sources map target-relative paths to absolute source paths
-- Produces: `ManagedFiles#plan(target_root:, installed_hashes:, resolutions: {}) -> Hash`
+- Produces: `FileSync::Planner.call(sources:, target_root:, installed_hashes:, resolutions: {}) -> Hash`
 - Result keys: `operations`, `conflicts`, `next_hashes`
-- Produces: `ManagedFiles#apply(operation, target_root:) -> void`
+- Produces: `FileSync::Target#apply(operation) -> void`
 
 - [ ] **Step 1: Write a four-case truth-table test**
 
 ```ruby
-# test/product_factory/managed_files_test.rb
-require_relative "../test_helper"
-
-class ManagedFilesTest < Minitest::Test
-  def test_three_way_refresh_truth_table
+# spec/product_factory/file_sync/planner_spec.rb
+RSpec.describe ProductFactory::FileSync::Planner do
+  it "implements the three-way refresh truth table" do
     in_tmp_repo do |source|
       in_tmp_repo do |target|
         write(source, "managed/a.txt", "upstream-v1\n")
         sources = { "a.txt" => File.join(source, "managed/a.txt") }
-        files = ProductFactory::ManagedFiles.new(sources: sources)
+        files = described_class.new(sources: sources)
         initial = files.plan(target_root: target, installed_hashes: {})
         files.apply(initial.fetch(:operations).first, target_root: target)
         old_hashes = initial.fetch(:next_hashes)
 
-        assert_empty files.plan(target_root: target, installed_hashes: old_hashes).fetch(:operations)
+        expect(files.plan(target_root: target, installed_hashes: old_hashes).fetch(:operations)).to be_empty
 
         write(target, "a.txt", "local-only\n")
-        assert_empty files.plan(target_root: target, installed_hashes: old_hashes).fetch(:operations)
+        expect(files.plan(target_root: target, installed_hashes: old_hashes).fetch(:operations)).to be_empty
 
         write(source, "managed/a.txt", "upstream-v2\n")
         conflict = files.plan(target_root: target, installed_hashes: old_hashes)
-        assert_equal ["a.txt"], conflict.fetch(:conflicts).map { |item| item.fetch("path") }
+        expect(conflict.fetch(:conflicts).map { |item| item.fetch("path") }).to eq(["a.txt"])
 
         resolved = files.plan(target_root: target, installed_hashes: old_hashes, resolutions: { "a.txt" => "take_upstream" })
-        assert_equal 1, resolved.fetch(:operations).length
+        expect(resolved.fetch(:operations).length).to eq(1)
       end
     end
   end
@@ -702,13 +719,13 @@ end
 
 - [ ] **Step 2: Run the focused test and confirm RED**
 
-Run: `bundle exec ruby -Itest test/product_factory/managed_files_test.rb`
+Run: `bundle exec rspec spec/product_factory/file_sync/planner_spec.rb`
 
-Expected: FAIL because `ManagedFiles` is undefined.
+Expected: FAIL because `FileSync::Planner` is undefined.
 
 - [ ] **Step 3: Implement hashing and the exact decision table**
 
-`ManagedFiles#plan` must enumerate the target-relative keys of `sources` in sorted order and compare:
+`FileSync::Planner` must enumerate the target-relative keys of `sources` in sorted order and compare:
 
 ```ruby
 installed = installed_hashes[path]
@@ -734,27 +751,27 @@ For a conflict, accept only `keep_local`, `take_upstream`, or `manual_merge`. `m
 
 Write operations contain base64-encoded bytes and mode, so apply does not depend on changing source files. Use `Tempfile.create` in the destination directory, `flush`, `fsync`, `chmod`, and `rename` for atomic replacement. Reject symlinks in both source and target.
 
-- [ ] **Step 4: Add deletion behavior only for previously managed files**
+- [ ] **Step 4: Add deletion behavior only for previously installed factory files**
 
 Add tests and implementation for an upstream removal:
 
 - unchanged previously managed local file -> `delete_file` operation;
-- locally changed previously managed file -> conflict;
+- locally changed factory file -> conflict;
 - never-managed local file -> untouched.
 
 Deletion is limited to the exact relative file path recorded in `installed_hashes`; directories are removed only when empty.
 
 - [ ] **Step 5: Run focused and full tests**
 
-Run: `bundle exec ruby -Itest test/product_factory/managed_files_test.rb && bundle exec rake`
+Run: `bundle exec rspec spec/product_factory/file_sync/planner_spec.rb && bundle exec rake`
 
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib test
-git commit -m "Plan safe managed-file refreshes"
+git add lib spec
+git commit -m "Plan safe factory-file refreshes"
 ```
 
 ---
@@ -765,7 +782,7 @@ git commit -m "Plan safe managed-file refreshes"
 - Create: `lib/product_factory/journal.rb`
 - Create: `lib/product_factory/executor.rb`
 - Modify: `lib/product_factory.rb`
-- Test: `test/product_factory/executor_test.rb`
+- Test: `spec/product_factory/executor_spec.rb`
 
 **Interfaces:**
 - Produces: `Journal.new(path:, clock:)`
@@ -777,11 +794,9 @@ git commit -m "Plan safe managed-file refreshes"
 - [ ] **Step 1: Write the interrupted-resume test**
 
 ```ruby
-# test/product_factory/executor_test.rb
-require_relative "../test_helper"
-
-class ExecutorTest < Minitest::Test
-  def test_resume_skips_verified_completed_operations
+# spec/product_factory/executor_spec.rb
+RSpec.describe ProductFactory::Executor do
+  it "skips verified completed operations when resuming" do
     in_tmp_repo do |root|
       journal = ProductFactory::Journal.new(path: File.join(root, "journal.jsonl"), clock: -> { Time.utc(2026, 9, 2) })
       calls = []
@@ -798,12 +813,12 @@ class ExecutorTest < Minitest::Test
         applied << operation.target
       end
       verify = ->(operation) { applied.include?(operation.target) }
-      handler = ProductFactory::Executor::Handler.new(apply: apply, verify: verify)
-      executor = ProductFactory::Executor.new(journal: journal, handlers: { "record" => handler })
+      handler = { apply: apply, verify: verify }
+      executor = described_class.new(journal: journal, handlers: { "record" => handler })
 
-      assert_raises(ProductFactory::Error) { executor.apply(plan) }
-      assert_equal :success, executor.apply(plan)
-      assert_equal %w[a b b c], calls
+      expect { executor.apply(plan) }.to raise_error(ProductFactory::Error, "interrupted")
+      expect(executor.apply(plan)).to eq(:success)
+      expect(calls).to eq(%w[a b b c])
     end
   end
 end
@@ -811,7 +826,7 @@ end
 
 - [ ] **Step 2: Run the focused test and confirm RED**
 
-Run: `bundle exec ruby -Itest test/product_factory/executor_test.rb`
+Run: `bundle exec rspec spec/product_factory/executor_spec.rb`
 
 Expected: FAIL because `Journal` and `Executor` are undefined.
 
@@ -834,7 +849,7 @@ Event forms:
 Before skipping a completed operation, call its handler's optional verifier:
 
 ```ruby
-Executor::Handler = Data.define(:apply, :verify)
+Handlers are hashes containing callable `apply` and `verify` values.
 ```
 
 `verify.call(operation)` returns true only when target state matches. A missing verifier is a configuration error. If verification fails, execute the operation again. Append started/completed/failed events around each call and a final run-completed event only after every operation verifies.
@@ -846,7 +861,7 @@ Run: `bundle exec rake`
 Expected: PASS.
 
 ```bash
-git add lib test
+git add lib spec
 git commit -m "Resume journaled factory operations"
 ```
 
@@ -859,8 +874,8 @@ git commit -m "Resume journaled factory operations"
 - Create: `lib/product_factory/run_id.rb`
 - Modify: `lib/product_factory/cli.rb`
 - Modify: `lib/product_factory.rb`
-- Test: `test/product_factory/setup_test.rb`
-- Test: `test/product_factory/cli_setup_test.rb`
+- Test: `spec/product_factory/setup_spec.rb`
+- Test: `spec/product_factory/cli_setup_spec.rb`
 
 **Interfaces:**
 - Produces: `RunId.generate(clock:, random:) -> String`
@@ -873,13 +888,11 @@ git commit -m "Resume journaled factory operations"
 - [ ] **Step 1: Write a failing setup/no-op integration test**
 
 ```ruby
-# test/product_factory/setup_test.rb
-require_relative "../test_helper"
-
-class SetupTest < Minitest::Test
-  def test_initial_apply_then_refresh_is_noop
+# spec/product_factory/setup_spec.rb
+RSpec.describe ProductFactory::Setup do
+  it "applies an initial setup and plans the next refresh as a no-op" do
     in_tmp_repo do |target|
-      setup = ProductFactory::Setup.new(
+      setup = described_class.new(
         distribution_root: File.expand_path("../..", __dir__),
         target_root: target,
         input: StringIO.new("yes\n"),
@@ -888,13 +901,13 @@ class SetupTest < Minitest::Test
       )
 
       first = setup.plan
-      assert_equal "setup", first.mode
-      assert first.applicable?
-      assert_equal :success, setup.apply(first)
+      expect(first.mode).to eq("setup")
+      expect(first).to be_applicable
+      expect(setup.apply(first)).to eq(:success)
 
       second = setup.plan
-      assert_equal "refresh", second.mode
-      assert_empty second.operations
+      expect(second.mode).to eq("refresh")
+      expect(second.operations).to be_empty
     end
   end
 end
@@ -902,13 +915,13 @@ end
 
 - [ ] **Step 2: Run the focused test and confirm RED**
 
-Run: `bundle exec ruby -Itest test/product_factory/setup_test.rb`
+Run: `bundle exec rspec spec/product_factory/setup_spec.rb`
 
 Expected: FAIL because `Setup` is undefined.
 
 - [ ] **Step 3: Implement setup detection and plan persistence**
 
-Mode is `setup` when `.product-factory/installation.yml` is absent and `refresh` otherwise. Build the managed source map deterministically:
+Mode is `setup` when `.product-factory/installation.yml` is absent and `refresh` otherwise. Build the factory source map deterministically:
 
 ```ruby
 sources = {}
@@ -924,7 +937,7 @@ Dir.glob(File.join(distribution_root, "templates/project/**/*"), File::FNM_DOTMA
 end
 ```
 
-When target `.product-factory/config.yml` is missing, add one `seed_config` operation containing the rendered `templates/config.yml`; do not include it in `managed_file_hashes`. When it exists, load and preserve it. Plans are saved outside the target repository at `Dir.tmpdir/product-factory-<run-id>.json`, so planning does not mutate the target.
+When target `.product-factory/config.yml` is missing, add one `seed_config` operation containing the rendered `templates/config.yml`; do not include it in `factory_file_hashes`. When it exists, load and preserve it. Plans are saved outside the target repository at `Dir.tmpdir/product-factory-<run-id>.json`, so planning does not mutate the target.
 
 Create the installed executable:
 
@@ -936,18 +949,23 @@ require "product_factory"
 exit ProductFactory::CLI.start(ARGV)
 ```
 
-Create the installed test runner:
+Create the installed RSpec runtime contract:
 
 ```ruby
-#!/usr/bin/env ruby
-# templates/project/.product-factory/runtime/test/run.rb
-$LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
+# templates/project/.product-factory/spec/integration_spec.rb
+runtime_lib = File.expand_path("../runtime/lib", __dir__)
+$LOAD_PATH.unshift(runtime_lib)
 require "product_factory"
-root = File.expand_path("../../..", __dir__)
-ProductFactory::Config.load(root)
-ProductFactory::Installation.load(root)
-ProductFactory::Validator.new(root: root).call
-puts "Product Factory runtime check passed"
+
+RSpec.describe "installed Product Factory runtime" do
+  it "loads and validates its installation" do
+    root = File.expand_path("../..", __dir__)
+
+    expect(ProductFactory::Config.load(root)).to be_a(ProductFactory::Config)
+    expect(ProductFactory::Installation.load(root)).to be_a(ProductFactory::Installation)
+    expect(ProductFactory::Validator.call(root: root)).to eq(true)
+  end
+end
 ```
 
 Generate run IDs as:
@@ -977,8 +995,8 @@ A resumed confirmed plan does not ask again.
 Replace the two fail-closed handlers with:
 
 ```ruby
-"plan" => -> { Setup.from_cli(cwd:, input:, output:).plan_and_print(argv) },
-"apply" => -> { Setup.from_cli(cwd:, input:, output:).load_and_apply(argv.fetch(0)) }
+"plan" => -> { Setup::Runner.from_cli(cwd:, input:, output:).plan_and_print(argv) },
+"apply" => -> { Setup::Runner.from_cli(cwd:, input:, output:).load_and_apply(argv.fetch(0)) }
 ```
 
 Add tests that assert:
@@ -991,14 +1009,14 @@ Add tests that assert:
 
 - [ ] **Step 6: Run focused and full tests**
 
-Run: `bundle exec ruby -Itest test/product_factory/setup_test.rb && bundle exec ruby -Itest test/product_factory/cli_setup_test.rb && bundle exec rake`
+Run: `bundle exec rspec spec/product_factory/setup_spec.rb spec/product_factory/cli_setup_spec.rb && bundle exec rake`
 
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add lib test
+git add lib spec templates
 git commit -m "Add local setup and refresh flow"
 ```
 
@@ -1011,47 +1029,44 @@ git commit -m "Add local setup and refresh flow"
 - Create: `lib/product_factory/validator.rb`
 - Modify: `lib/product_factory/cli.rb`
 - Modify: `lib/product_factory.rb`
-- Test: `test/product_factory/doctor_test.rb`
-- Test: `test/product_factory/validator_test.rb`
+- Test: `spec/product_factory/doctor_spec.rb`
+- Test: `spec/product_factory/validator_spec.rb`
 
 **Interfaces:**
-- Produces: `Doctor.new(root:, command_runner:).call -> Array<Check>`
+- Produces: `Doctor::Runner.call(root:, command_runner:) -> Array<Check>`
 - `Check = Data.define(:name, :status, :message)` where status is `:pass`, `:warn`, or `:fail`
-- Produces: `Validator.new(root:).call -> true`, raises `ValidationError` on failure
+- Produces: `Validator.call(root:) -> true`, raises `ValidationError` on failure
 - CLI commands: `doctor`, `validate`, `test`
 
 - [ ] **Step 1: Write failing environment and installation validation tests**
 
 ```ruby
-# test/product_factory/doctor_test.rb
-require_relative "../test_helper"
-
-class DoctorTest < Minitest::Test
-  def test_reports_missing_gh_without_running_setup
+# spec/product_factory/doctor_spec.rb
+RSpec.describe ProductFactory::Doctor::Runner do
+  it "reports missing gh without running setup" do
     runner = ->(*command) { command == ["ruby", "--version"] ? [true, "ruby 3.3.0"] : [false, "missing"] }
-    checks = ProductFactory::Doctor.new(root: Dir.pwd, command_runner: runner).call
+    checks = described_class.new(root: Dir.pwd, command_runner: runner).call
 
-    assert_equal :pass, checks.find { |check| check.name == "ruby" }.status
-    assert_equal :fail, checks.find { |check| check.name == "gh" }.status
+    expect(checks.find { |check| check.name == "ruby" }.status).to eq(:pass)
+    expect(checks.find { |check| check.name == "gh" }.status).to eq(:fail)
   end
 end
 ```
 
 ```ruby
-# test/product_factory/validator_test.rb
-require_relative "../test_helper"
-
-class ValidatorTest < Minitest::Test
-  def test_rejects_modified_managed_file
+# spec/product_factory/validator_spec.rb
+RSpec.describe ProductFactory::Validator do
+  it "rejects a modified factory file" do
     in_tmp_repo do |root|
+      config_template = File.expand_path("../../templates/config.yml", __dir__)
+      write(root, ".product-factory/config.yml", File.read(config_template))
       write(root, ".product-factory/runtime/lib/product_factory.rb", "changed\n")
       ProductFactory::Installation.empty.with(
-        "managed_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "not-the-current-hash" }
+        "factory_file_hashes" => { ".product-factory/runtime/lib/product_factory.rb" => "not-the-current-hash" }
       ).write(root)
 
-      error = assert_raises(ProductFactory::ValidationError) { ProductFactory::Validator.new(root: root).call }
-
-      assert_includes error.message, ".product-factory/runtime/lib/product_factory.rb"
+      expect { described_class.new(root: root).call }
+        .to raise_error(ProductFactory::ValidationError, /\.product-factory\/runtime\/lib\/product_factory\.rb/)
     end
   end
 end
@@ -1059,7 +1074,7 @@ end
 
 - [ ] **Step 2: Run focused tests and confirm RED**
 
-Run: `bundle exec ruby -Itest test/product_factory/doctor_test.rb && bundle exec ruby -Itest test/product_factory/validator_test.rb`
+Run: `bundle exec rspec spec/product_factory/doctor_spec.rb spec/product_factory/validator_spec.rb`
 
 Expected: FAIL because both classes are undefined.
 
@@ -1067,7 +1082,7 @@ Expected: FAIL because both classes are undefined.
 
 Doctor checks, without mutation:
 
-- Ruby version parses and is at least 3.2;
+- Ruby version is exactly 4.0.6;
 - `git --version` succeeds;
 - `gh --version` succeeds;
 - target is inside a Git work tree;
@@ -1080,7 +1095,7 @@ Validator checks:
 
 - configuration validity;
 - installation schema validity;
-- every installed managed file exists and matches its recorded SHA-256; human-owned `.product-factory/config.yml` is validated semantically and is not hash-compared;
+- every installed factory file exists and matches its recorded SHA-256; human-owned `.product-factory/config.yml` is validated semantically and is not hash-compared;
 - pending operations are empty after a successful run;
 - the journal parses completely;
 - no credential environment-variable value appears in config or installation state.
@@ -1089,7 +1104,7 @@ Validator checks:
 
 - `doctor`: print one line per check and return 1 if any check fails;
 - `validate`: print `Product Factory installation is valid` and return 0, otherwise the validation error and 1;
-- `test`: execute the installed runtime test command using argument arrays and return its status. In the distribution repository this is `bundle exec rake`; in an installed project it is `ruby .product-factory/runtime/test/run.rb`.
+- `test`: execute RSpec using argument arrays and return its status. In the distribution repository this is `bundle exec rspec`; in an installed project it is `bundle exec rspec .product-factory/spec/integration_spec.rb`.
 
 Installation fails validation if the installed test runner is absent; it never claims success without executing the check.
 
@@ -1109,7 +1124,7 @@ Expected: test suite PASS; Doctor reports the real local environment; Validate r
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib test
+git add lib spec
 git commit -m "Validate Product Factory installations"
 ```
 
@@ -1118,18 +1133,18 @@ git commit -m "Validate Product Factory installations"
 ### Task 9: End-to-end local setup release gate
 
 **Files:**
-- Create: `test/end_to_end/local_setup_test.rb`
+- Create: `spec/integration/local_setup_spec.rb`
 - Create: `.github/workflows/ci.yml`
 - Create: `README.md`
 - Modify: `templates/config.yml`
 
 **Interfaces:**
 - Consumes all Slice 1 interfaces.
-- Produces one documented local workflow and a CI gate for Ruby 3.2 and the current stable Ruby.
+- Produces one documented local workflow and a CI gate for Ruby 4.0.6.
 
 - [ ] **Step 1: Write the end-to-end failure matrix**
 
-Create one Minitest file with independent temporary-target tests for:
+Create one RSpec file with independent temporary-target examples for:
 
 1. initial setup plan is mutation-free;
 2. declined apply changes nothing;
@@ -1148,7 +1163,7 @@ Use a fake distribution directory copied from `templates/project`; never edit th
 
 - [ ] **Step 2: Run the E2E file and observe any missing behavior**
 
-Run: `bundle exec ruby -Itest test/end_to_end/local_setup_test.rb`
+Run: `bundle exec rspec spec/integration/local_setup_spec.rb`
 
 Expected before corrections: at least one assertion exposes any integration gap between Tasks 1-8. Record the exact failure in the commit body if the correction changes a public interface.
 
@@ -1172,7 +1187,7 @@ jobs:
   test:
     strategy:
       matrix:
-        ruby: ["3.2", "3.4"]
+        ruby: ["4.0.6"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

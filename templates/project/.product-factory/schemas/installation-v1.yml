@@ -1,0 +1,18 @@
+ownership: product-factory
+fields:
+  schema_version:
+    type: integer
+  factory_version:
+    type: string_or_null
+  installed_at:
+    type: timestamp_or_null
+  installed_by:
+    type: string_or_null
+  github_resource_ids:
+    type: mapping
+  factory_file_hashes:
+    type: mapping_of_strings
+  last_successful_setup_run:
+    type: string_or_null
+  pending_operations:
+    type: array
