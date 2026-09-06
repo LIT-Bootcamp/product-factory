@@ -9,6 +9,7 @@ module ProductFactory
       templates/project/.product-factory/spec/integration_spec.rb
       templates/project/.product-factory/schemas/config-v1.yml
       templates/project/.product-factory/schemas/installation-v1.yml
+      templates/project/.product-factory/schemas/provisioning-v1.yml
     ].freeze
 
     def initialize(root)
@@ -22,6 +23,10 @@ module ProductFactory
 
     def config_bytes
       File.binread(path("templates/config.yml"))
+    end
+
+    def provisioning_schema_bytes
+      File.binread(path("templates/project/.product-factory/schemas/provisioning-v1.yml"))
     end
 
     private

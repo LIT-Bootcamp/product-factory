@@ -2,17 +2,18 @@
 
 module ProductFactory
   class CLI
-    COMMANDS = %w[doctor plan apply validate test].freeze
+    COMMANDS = %w[setup doctor plan apply validate test].freeze
 
-    def self.start(argv, input: $stdin, output: $stdout, error: $stderr, cwd: Dir.pwd)
-      new(input:, output:, error:, cwd:).start(argv)
+    def self.start(argv, input: $stdin, output: $stdout, error: $stderr, cwd: Dir.pwd, setup_runner: nil)
+      new(input:, output:, error:, cwd:, setup_runner:).start(argv)
     end
 
-    def initialize(input:, output:, error:, cwd:)
+    def initialize(input:, output:, error:, cwd:, setup_runner: nil)
       @input = input
       @output = output
       @error = error
       @cwd = cwd
+      @setup_runner = setup_runner
     end
 
     def start(argv)
@@ -35,6 +36,7 @@ module ProductFactory
 
     def dispatch(argv)
       case argv.first
+      when "setup" then run_setup(argv.drop(1))
       when "plan" then plan(argv.drop(1))
       when "apply" then apply(argv[1])
       when "doctor" then doctor
@@ -44,17 +46,24 @@ module ProductFactory
       end
     end
 
-    def setup = Setup::Runner.from_cli(cwd: @cwd, input: @input, output: @output)
+    def setup_runner
+      @setup_runner ||= Setup::Runner.from_cli(cwd: @cwd, input: @input, output: @output, error: @error)
+    end
+
+    def run_setup(arguments)
+      setup_runner.run(arguments)
+      0
+    end
 
     def plan(arguments)
-      setup.plan_and_print(arguments)
+      setup_runner.plan_and_print(arguments)
       0
     end
 
     def apply(plan_path)
       raise UsageError, "apply requires PLAN_PATH" unless plan_path
 
-      setup.load_and_apply(plan_path)
+      setup_runner.load_and_apply(plan_path)
       0
     end
 

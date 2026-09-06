@@ -10,6 +10,12 @@ fields:
     type: string_or_null
   github_resource_ids:
     type: mapping
+  github_resource_hashes:
+    type: mapping_of_strings
+  wiki_page_hashes:
+    type: mapping_of_strings
+  wiki_head:
+    type: string_or_null
   factory_file_hashes:
     type: mapping_of_strings
   last_successful_setup_run:

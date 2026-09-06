@@ -2,11 +2,12 @@
 
 module ProductFactory
   class Journal
+    FAILURE_FIELDS = %w[failed_rule responsible_component root_cause impact recovery_action].freeze
     EVENT_FIELDS = {
       "run_confirmed" => %w[run_id],
       "operation_started" => %w[run_id operation_id],
       "operation_completed" => %w[run_id operation_id],
-      "operation_failed" => %w[run_id operation_id error_class message],
+      "operation_failed" => %w[run_id operation_id error_class message] + FAILURE_FIELDS,
       "run_completed" => %w[run_id status]
     }.freeze
 
@@ -60,18 +61,23 @@ module ProductFactory
     def validate_event!(event)
       raise ValidationError, "Invalid journal event" unless event.is_a?(Hash)
 
-      required = EVENT_FIELDS[event["event"]]
-      raise ValidationError, "Invalid journal event" unless required
-      unless (required + ["recorded_at"]).all? { |key| event[key].is_a?(String) }
-        raise ValidationError, "Invalid journal event"
-      end
-      raise ValidationError, "Invalid journal event" if event.key?("reason") && !event["reason"].is_a?(String)
-      if event["event"] == "run_completed" && event["status"] != "success"
-        raise ValidationError, "Invalid journal event"
-      end
-
+      EVENT_FIELDS.fetch(event.fetch("event")).each { |key| validate_string!(event, key) }
+      validate_string!(event, "recorded_at")
+      validate_string!(event, "reason") if event.key?("reason")
+      validate_status!(event)
       Time.iso8601(event["recorded_at"])
-    rescue ArgumentError
+    rescue KeyError, ArgumentError
+      raise ValidationError, "Invalid journal event"
+    end
+
+    def validate_string!(event, key)
+      raise ValidationError, "Invalid journal event" unless event[key].is_a?(String)
+    end
+
+    def validate_status!(event)
+      return unless event["event"] == "run_completed"
+      return if %w[success no-op].include?(event["status"])
+
       raise ValidationError, "Invalid journal event"
     end
   end

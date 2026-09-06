@@ -27,6 +27,25 @@ RSpec.describe ProductFactory::Installation do
     expect(updated.factory_version).to eq("0.1.0")
   end
 
+  it "round-trips remote state without exposing it for mutation" do
+    in_tmp_repo do |root|
+      state = {
+        "github_resource_ids" => { "project" => "P_1" },
+        "github_resource_hashes" => { "project" => "abc" },
+        "wiki_page_hashes" => { "_Sidebar.md" => "def" },
+        "wiki_head" => "0123456789"
+      }
+
+      described_class.empty.with(state).write(root)
+      loaded = described_class.load(root)
+      exposed = loaded.to_h
+      exposed.fetch("github_resource_ids")["project"] = "changed"
+      exposed.fetch("wiki_page_hashes")["_Sidebar.md"] = "changed"
+
+      expect(loaded.to_h).to include(state)
+    end
+  end
+
   it "rejects Ruby objects through safe YAML loading" do
     in_tmp_repo do |root|
       write(root, described_class::PATH, "--- !ruby/object:Object {}\n")

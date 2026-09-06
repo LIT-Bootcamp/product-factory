@@ -1,0 +1,98 @@
+schema_version: 1
+api_version: "2026-03-10"
+
+markers:
+  issue_type: "product-factory:v1:issue-type:%{name}"
+  project: "product-factory:v1:project:%{organization}/%{repository}"
+  wiki: "<!-- product-factory:v1:wiki:%{page} -->"
+
+issue_types:
+  Idea:
+    description: "A high-level product opportunity with measurable user or business value. product-factory:v1:issue-type:Idea"
+    color: purple
+  Epic:
+    description: "A coherent business capability and its observable scenarios. product-factory:v1:issue-type:Epic"
+    color: blue
+  Ticket:
+    description: "An independently deliverable technical change. product-factory:v1:issue-type:Ticket"
+    color: green
+
+project:
+  public: false
+
+fields:
+  Status:
+    type: single_select
+    options:
+      - { name: Created, color: GRAY, description: "New Idea awaiting a human decision" }
+      - { name: Human approved, color: GREEN, description: "Approved for business analysis" }
+      - { name: Draft, color: GRAY, description: "Epic draft under Business Analyst ownership" }
+      - { name: Analyzing, color: BLUE, description: "Business analysis is running" }
+      - { name: Analyzed, color: GREEN, description: "Business scenarios are complete" }
+      - { name: Tech analyzing, color: BLUE, description: "Technical analysis is running" }
+      - { name: Tech analyzed, color: GREEN, description: "Technical decomposition is complete" }
+      - { name: Ready for backlog, color: PURPLE, description: "Ticket is ready for backlog publication" }
+      - { name: Done, color: GREEN, description: "Entity and all required children are complete" }
+      - { name: Blocked, color: RED, description: "A declared dependency prevents progress" }
+      - { name: Needs human, color: YELLOW, description: "A material human decision is required" }
+      - { name: Superseded, color: GRAY, description: "A newer accepted entity replaces this one" }
+  Priority:
+    type: single_select
+    options:
+      - { name: P1, color: RED, description: "Highest priority" }
+      - { name: P2, color: ORANGE, description: "Priority 2" }
+      - { name: P3, color: ORANGE, description: "Priority 3" }
+      - { name: P4, color: YELLOW, description: "Priority 4" }
+      - { name: P5, color: YELLOW, description: "Priority 5" }
+      - { name: P6, color: GREEN, description: "Priority 6" }
+      - { name: P7, color: BLUE, description: "Priority 7" }
+      - { name: P8, color: BLUE, description: "Priority 8" }
+      - { name: P9, color: GRAY, description: "Priority 9" }
+      - { name: P10, color: GRAY, description: "Lowest priority" }
+  Created At: { type: date }
+  Human Approved At: { type: date }
+  Analysis Started At: { type: date }
+  Analyzed At: { type: date }
+  Tech Analysis Started At: { type: date }
+  Tech Analyzed At: { type: date }
+  Blocked At: { type: date }
+  Needs Human At: { type: date }
+  Superseded At: { type: date }
+  Created By: { type: text }
+  Approved By: { type: text }
+  Analyzed By: { type: text }
+  Tech Analyzed By: { type: text }
+  Source: { type: text }
+  Source Version: { type: number }
+  Factory Run: { type: text }
+  Active Run: { type: text }
+  Claim Expires At: { type: date }
+  Human Estimate Hours: { type: number }
+  AI Estimate Hours: { type: number }
+  Duration Minutes: { type: number }
+  Tokens Used: { type: number }
+  Run Count: { type: number }
+  Failure Count: { type: number }
+  Last Failure Owner: { type: text }
+  Last Failure At: { type: date }
+  User Value: { type: number }
+  Business Value: { type: number }
+  Progressiveness: { type: number }
+  Strategic Fit: { type: number }
+  Urgency: { type: number }
+  Evidence Confidence: { type: number }
+  Research Verified At: { type: date }
+
+views:
+  Ideas:
+    issue_type: Idea
+    visible_fields: [Title, Status, Priority, User Value, Business Value, Progressiveness, Strategic Fit, Urgency, Evidence Confidence, Created At]
+  Epics:
+    issue_type: Epic
+    visible_fields: [Title, Status, Priority, Parent issue, Created At, Analyzed At, Tech Analyzed At]
+  Tickets:
+    issue_type: Ticket
+    visible_fields: [Title, Status, Priority, Parent issue, Human Estimate Hours, AI Estimate Hours, Assignees, Linked pull requests]
+
+wiki:
+  pages: [_Sidebar, Setup-Log, Ideas, Epics, Tickets, Research, Factory-Runs]

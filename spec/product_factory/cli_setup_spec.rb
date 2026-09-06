@@ -1,6 +1,15 @@
 # frozen_string_literal: true
 
 RSpec.describe ProductFactory::CLI do
+  it "runs the complete setup command through one injected runner" do
+    setup = instance_double(ProductFactory::Setup::Runner, run: :success)
+
+    status = described_class.start(["setup", "--adopt", "project"], setup_runner: setup)
+
+    expect(status).to eq(0)
+    expect(setup).to have_received(:run).with(["--adopt", "project"])
+  end
+
   it "leaves git status unchanged while planning" do
     in_tmp_repo do |target|
       raise "git init failed" unless system("git", "init", "-q", target)

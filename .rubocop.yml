@@ -38,6 +38,11 @@ Metrics/ParameterLists:
 Metrics/PerceivedComplexity:
   Max: 10
 
+Naming/PredicateMethod:
+  AllowedMethods:
+    - apply
+    - call
+
 RSpec/ExampleLength:
   Max: 45
 
@@ -45,5 +50,8 @@ RSpec/MultipleExpectations:
   Max: 10
 
 RSpec/SpecFilePathFormat:
+  CustomTransform:
+    GitHub: github
   Exclude:
     - "spec/integration/**/*"
+    - "spec/live/**/*"
