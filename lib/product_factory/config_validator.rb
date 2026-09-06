@@ -108,7 +108,7 @@ module ProductFactory
       return false unless root.is_a?(String) && !root.include?("\0")
 
       parts = root.split(File::SEPARATOR, -1)
-      !Pathname.new(root).absolute? && parts.none? { |part| part.empty? || part == "." || part == ".." }
+      File.absolute_path(root) != root && parts.none? { |part| part.empty? || part == "." || part == ".." }
     end
 
     def validate_type(path, description)
