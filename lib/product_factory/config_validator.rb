@@ -2,19 +2,20 @@
 
 module ProductFactory
   class ConfigValidator < Service
+    ADAPTERS = %w[repository wiki].freeze
     REQUIRED = %w[
-      product.name product.context_page product.inventory_page
+      product.name product.context_document product.inventory_document
       github.organization github.repository github.project_title
       research.freshness_days workflow.clarification_rounds
       workflow.claim_lease_minutes workflow.max_ticket_human_hours
     ].freeze
     MAPPINGS = %w[
-      product github research workflow agents
+      product github research workflow agents artifacts
       agents.ideator agents.business_analyst agents.technical_lead agents.manual_qa
       qa qa.credential_env knowledge
     ].freeze
     STRINGS = %w[
-      product.name product.context_page product.inventory_page
+      product.name product.context_document product.inventory_document
       github.organization github.repository github.project_title
       agents.ideator.model agents.ideator.reasoning
       agents.business_analyst.model agents.business_analyst.reasoning
@@ -38,14 +39,30 @@ module ProductFactory
     end
 
     def call
+      normalize_legacy!
       validate_schema!
       validate_mappings!
       validate_required_fields!
       validate_types!
+      validate_adapter!
       @data
     end
 
     private
+
+    def normalize_legacy!
+      product = @data.fetch("product", {})
+      artifacts = @data["artifacts"]
+      if artifacts.nil?
+        @data["artifacts"] = { "adapter" => "wiki" }
+        return unless product.is_a?(Hash)
+
+        product["context_document"] ||= product.delete("context_page")
+        product["inventory_document"] ||= product.delete("inventory_page")
+      elsif artifacts.is_a?(Hash) && artifacts["adapter"] == "repository"
+        artifacts["root"] ||= "product"
+      end
+    end
 
     def validate_schema!
       validate_type("schema_version", "an integer") { |value| value.is_a?(Integer) }
@@ -75,6 +92,19 @@ module ProductFactory
       validate_type("knowledge.paths", "an array of strings") do |value|
         value.is_a?(Array) && value.all?(String)
       end
+    end
+
+    def validate_adapter!
+      adapter = fetch("artifacts.adapter")
+      raise ValidationError, "artifacts.adapter is unsupported" unless ADAPTERS.include?(adapter)
+
+      root = fetch("artifacts.root")
+      return if adapter == "wiki" && root.equal?(MISSING)
+
+      parts = root.to_s.split(File::SEPARATOR, -1)
+      safe = root.is_a?(String) && !root.include?("\0") && !Pathname.new(root).absolute? &&
+             parts.none? { |part| part.empty? || part == "." || part == ".." }
+      raise ValidationError, "artifacts.root must be a safe relative path" unless safe
     end
 
     def validate_type(path, description)

@@ -27,22 +27,53 @@ RSpec.describe ProductFactory::Installation do
     expect(updated.factory_version).to eq("0.1.0")
   end
 
-  it "round-trips remote state without exposing it for mutation" do
+  it "normalizes legacy Wiki state into generic artifact state" do
+    legacy = described_class.new(
+      "wiki_page_hashes" => {
+        "Ideas.md" => "a" * 64,
+        "_Sidebar.md" => "b" * 64
+      },
+      "wiki_head" => "WIKI-1"
+    )
+
+    expect(legacy.artifact_adapter).to eq("wiki")
+    expect(legacy.artifact_document_hashes).to eq("ideas/index" => "a" * 64)
+    expect(legacy.to_h).to include("artifact_adapter" => "wiki", "artifact_revision" => "WIKI-1")
+    expect(legacy.to_h).not_to include("wiki_page_hashes", "wiki_head")
+  end
+
+  it "round-trips generic artifact state without exposing it for mutation" do
     in_tmp_repo do |root|
       state = {
         "github_resource_ids" => { "project" => "P_1" },
         "github_resource_hashes" => { "project" => "abc" },
-        "wiki_page_hashes" => { "_Sidebar.md" => "def" },
-        "wiki_head" => "0123456789"
+        "artifact_adapter" => "wiki",
+        "artifact_document_hashes" => { "ideas/index" => "a" * 64 },
+        "artifact_revision" => "0123456789"
       }
 
       described_class.empty.with(state).write(root)
       loaded = described_class.load(root)
       exposed = loaded.to_h
       exposed.fetch("github_resource_ids")["project"] = "changed"
-      exposed.fetch("wiki_page_hashes")["_Sidebar.md"] = "changed"
+      exposed.fetch("artifact_document_hashes")["ideas/index"] = "changed"
 
       expect(loaded.to_h).to include(state)
+    end
+  end
+
+  {
+    "wiki_page_hashes" => false,
+    "wiki_head" => 1,
+    "artifact_adapter" => "confluence",
+    "artifact_revision" => 1,
+    "artifact_document_hashes" => false,
+    "artifact_document_hashes with a non-string ID" => { :"ideas/index" => "a" * 64 },
+    "artifact_document_hashes with an invalid hash" => { "ideas/index" => "A" * 64 }
+  }.each do |description, value|
+    it "rejects malformed artifact state #{description}" do
+      key = description.delete_suffix(" with a non-string ID").delete_suffix(" with an invalid hash")
+      expect { described_class.new(key => value) }.to raise_error(ProductFactory::ValidationError)
     end
   end
 

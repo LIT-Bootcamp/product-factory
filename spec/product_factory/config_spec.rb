@@ -6,10 +6,11 @@ RSpec.describe ProductFactory::Config do
       "schema_version" => 1,
       "product" => {
         "name" => "Bootcamper",
-        "context_page" => "Product-Context",
-        "inventory_page" => "Product-Inventory",
+        "context_document" => "context",
+        "inventory_document" => "inventory",
         "max_active_ideas" => 10
       },
+      "artifacts" => { "adapter" => "repository", "root" => "product" },
       "github" => {
         "organization" => "LIT-Bootcamp",
         "repository" => "bootcamper",
@@ -41,9 +42,10 @@ RSpec.describe ProductFactory::Config do
         schema_version: 1
         product:
           name: Bootcamper
-          context_page: Product-Context
-          inventory_page: Product-Inventory
+          context_document: context
+          inventory_document: inventory
           max_active_ideas: 10
+        artifacts: { adapter: repository, root: product }
         github:
           organization: LIT-Bootcamp
           repository: bootcamper
@@ -62,8 +64,22 @@ RSpec.describe ProductFactory::Config do
 
       expect(config.schema_version).to eq(1)
       expect(config.product.fetch("name")).to eq("Bootcamper")
+      expect(config.artifacts).to eq("adapter" => "repository", "root" => "product")
+      expect(config.product).to include("context_document" => "context", "inventory_document" => "inventory")
       expect(config.workflow.fetch("max_ticket_human_hours")).to eq(16)
     end
+  end
+
+  it "normalizes a legacy v1 Wiki configuration" do
+    legacy = YAML.safe_load(YAML.dump(valid_config), aliases: false)
+    legacy.fetch("product")["context_page"] = legacy.fetch("product").delete("context_document")
+    legacy.fetch("product")["inventory_page"] = legacy.fetch("product").delete("inventory_document")
+    legacy.delete("artifacts")
+
+    config = described_class.new(legacy)
+
+    expect(config.artifacts).to eq("adapter" => "wiki")
+    expect(config.product).to include("context_document" => "context", "inventory_document" => "inventory")
   end
 
   it "rejects missing required values" do
@@ -136,8 +152,21 @@ RSpec.describe ProductFactory::Config do
     end
   end
 
+  [
+    ["adapter", "confluence", "artifacts.adapter is unsupported"],
+    ["root", "/product", "artifacts.root must be a safe relative path"],
+    ["root", "../product", "artifacts.root must be a safe relative path"]
+  ].each do |key, value, message|
+    it "rejects an invalid artifact #{key}" do
+      valid_config.fetch("artifacts")[key] = value
+
+      expect { described_class.new(valid_config) }
+        .to raise_error(ProductFactory::ValidationError, message)
+    end
+  end
+
   %w[
-    product github research workflow agents
+    product github research workflow agents artifacts
     agents.ideator agents.business_analyst agents.technical_lead agents.manual_qa
     qa qa.credential_env knowledge
   ].each do |path|

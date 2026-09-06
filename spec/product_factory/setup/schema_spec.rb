@@ -11,9 +11,11 @@ RSpec.describe ProductFactory::Setup::Schema do
     expect(schema.dig("fields", "Priority", "options").map { |option| option.fetch("name") })
       .to eq((1..10).map { |number| "P#{number}" })
     expect(schema.fetch("views").keys).to eq(%w[Ideas Epics Tickets])
-    expect(schema.dig("wiki", "pages")).to eq(
-      %w[_Sidebar Setup-Log Ideas Epics Tickets Research Factory-Runs]
+    expect(schema.dig("artifacts", "documents")).to eq(
+      %w[index setup-log ideas/index epics/index tickets/index research/index factory-runs/index]
     )
+    expect(schema.dig("markers", "artifact"))
+      .to eq("<!-- product-factory:v1:artifact:%{document} -->")
     expect(schema).to be_frozen
   end
 
