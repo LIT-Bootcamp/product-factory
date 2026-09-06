@@ -5,6 +5,7 @@ markers:
   issue_type: "product-factory:v1:issue-type:%{name}"
   project: "product-factory:v1:project:%{organization}/%{repository}"
   artifact: "<!-- product-factory:v1:artifact:%{document} -->"
+  wiki: "<!-- product-factory:v1:wiki:%{page} -->"
 
 issue_types:
   Idea:
@@ -96,3 +97,6 @@ views:
 
 artifacts:
   documents: [index, setup-log, ideas/index, epics/index, tickets/index, research/index, factory-runs/index]
+
+wiki:
+  pages: [_Sidebar, Setup-Log, Ideas, Epics, Tickets, Research, Factory-Runs]

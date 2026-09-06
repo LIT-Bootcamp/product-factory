@@ -33,11 +33,14 @@ RSpec.describe ProductFactory::Installation do
         "Ideas.md" => "a" * 64,
         "_Sidebar.md" => "b" * 64
       },
-      "wiki_head" => "WIKI-1"
+      "wiki_head" => "WIKI-1",
+      "artifact_document_hashes" => {}
     )
 
     expect(legacy.artifact_adapter).to eq("wiki")
     expect(legacy.artifact_document_hashes).to eq("ideas/index" => "a" * 64)
+    expect(legacy.wiki_page_hashes).to eq("Ideas.md" => "a" * 64)
+    expect(legacy.wiki_head).to eq("WIKI-1")
     expect(legacy.to_h).to include("artifact_adapter" => "wiki", "artifact_revision" => "WIKI-1")
     expect(legacy.to_h).not_to include("wiki_page_hashes", "wiki_head")
   end
@@ -68,7 +71,7 @@ RSpec.describe ProductFactory::Installation do
     "artifact_adapter" => "confluence",
     "artifact_revision" => 1,
     "artifact_document_hashes" => false,
-    "artifact_document_hashes with a non-string ID" => { :"ideas/index" => "a" * 64 },
+    "artifact_document_hashes with a non-string ID" => { "ideas/index": "a" * 64 },
     "artifact_document_hashes with an invalid hash" => { "ideas/index" => "A" * 64 }
   }.each do |description, value|
     it "rejects malformed artifact state #{description}" do

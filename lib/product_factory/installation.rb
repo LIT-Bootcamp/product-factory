@@ -1,31 +1,22 @@
 # frozen_string_literal: true
 
 module ProductFactory
+  INSTALLATION_DEFAULTS = {
+    "schema_version" => 1, "factory_version" => nil, "installed_at" => nil, "installed_by" => nil,
+    "github_resource_ids" => {}, "github_resource_hashes" => {}, "artifact_adapter" => nil,
+    "artifact_document_hashes" => {}, "artifact_revision" => nil, "factory_file_hashes" => {},
+    "last_successful_setup_run" => nil, "pending_operations" => []
+  }.freeze
+  STATE_ADAPTERS = [nil, "repository", "wiki"].freeze
+
   class Installation
     PATH = ".product-factory/installation.yml"
-    LEGACY_DOCUMENTS = {
-      "Setup-Log.md" => "setup-log",
-      "Ideas.md" => "ideas/index",
-      "Epics.md" => "epics/index",
-      "Tickets.md" => "tickets/index",
-      "Research.md" => "research/index",
-      "Factory-Runs.md" => "factory-runs/index"
-    }.freeze
-    DEFAULTS = {
-      "schema_version" => 1,
-      "factory_version" => nil,
-      "installed_at" => nil,
-      "installed_by" => nil,
-      "github_resource_ids" => {},
-      "github_resource_hashes" => {},
-      "artifact_adapter" => nil,
-      "artifact_document_hashes" => {},
-      "artifact_revision" => nil,
-      "factory_file_hashes" => {},
-      "last_successful_setup_run" => nil,
-      "pending_operations" => []
-    }.freeze
-
+    LEGACY_DOCUMENTS = %w[
+      Setup-Log.md setup-log Ideas.md ideas/index Epics.md epics/index
+      Tickets.md tickets/index Research.md research/index Factory-Runs.md factory-runs/index
+    ].each_slice(2).to_h.freeze
+    LEGACY_PAGES = LEGACY_DOCUMENTS.keys.freeze
+    DOCUMENT_PAGES = LEGACY_DOCUMENTS.invert.freeze
     def self.load(root)
       path = File.join(root, PATH)
       return empty unless File.exist?(path)
@@ -35,12 +26,12 @@ module ProductFactory
       raise ValidationError, "Invalid #{PATH}: #{e.message}"
     end
 
-    def self.empty = new(DEFAULTS)
+    def self.empty = new(INSTALLATION_DEFAULTS)
 
     def initialize(data)
       raise ValidationError, "installation state must be a mapping" unless data.is_a?(Hash)
 
-      @data = immutable_copy(DEFAULTS.merge(normalize(data)))
+      @data = immutable_copy(INSTALLATION_DEFAULTS.merge(normalize(data)))
       raise ValidationError, "installation schema_version must equal 1" unless @data["schema_version"] == 1
 
       validate_artifacts!
@@ -52,12 +43,12 @@ module ProductFactory
     def artifact_adapter = @data["artifact_adapter"]
     def artifact_document_hashes = mutable_copy(@data["artifact_document_hashes"])
     def artifact_revision = @data["artifact_revision"]
+    def wiki_head = artifact_adapter == "wiki" ? artifact_revision : nil
+
     def wiki_page_hashes
-      LEGACY_DOCUMENTS.invert.filter_map do |document, page|
-        hash = @data["artifact_document_hashes"][document]
-        [page, hash] if hash
-      end.to_h
+      @data["artifact_document_hashes"].slice(*DOCUMENT_PAGES.keys).transform_keys { DOCUMENT_PAGES[it] }
     end
+
     def pending_operations = mutable_copy(@data["pending_operations"])
     def to_h = mutable_copy(@data)
     def with(attributes) = self.class.new(@data.merge(attributes.transform_keys(&:to_s)))
@@ -76,26 +67,28 @@ module ProductFactory
 
     def normalize(data)
       state = data.transform_keys(&:to_s)
-      legacy = state.key?("wiki_page_hashes") || state.key?("wiki_head")
+      return state unless legacy_state?(state)
+
       hashes = state.delete("wiki_page_hashes")
       head = state.delete("wiki_head")
-      return state unless legacy
-
-      raise ValidationError, "wiki_page_hashes must be a mapping" unless hashes.nil? || hashes.is_a?(Hash)
-      raise ValidationError, "wiki_head must be a string or null" unless head.nil? || head.is_a?(String)
-
+      validate_legacy_state!(hashes, head)
       state["artifact_adapter"] ||= "wiki"
       state["artifact_revision"] ||= head
-      state["artifact_document_hashes"] ||= hashes.to_h.filter_map do |page, hash|
-        document = LEGACY_DOCUMENTS[page]
-        [document, hash] if document
-      end.to_h
+      if state.fetch("artifact_document_hashes", {}) == {}
+        state["artifact_document_hashes"] = hashes.to_h.slice(*LEGACY_PAGES).transform_keys { LEGACY_DOCUMENTS[it] }
+      end
       state
     end
 
+    def legacy_state?(state) = state.key?("wiki_page_hashes") || state.key?("wiki_head")
+
+    def validate_legacy_state!(hashes, head)
+      raise ValidationError, "wiki_page_hashes must be a mapping" unless hashes.nil? || hashes.is_a?(Hash)
+      raise ValidationError, "wiki_head must be a string or null" unless head.nil? || head.is_a?(String)
+    end
+
     def validate_artifacts!
-      adapter = @data["artifact_adapter"]
-      raise ValidationError, "artifact_adapter is unsupported" unless [nil, "repository", "wiki"].include?(adapter)
+      raise ValidationError, "artifact_adapter is unsupported" unless STATE_ADAPTERS.include?(artifact_adapter)
 
       revision = @data["artifact_revision"]
       raise ValidationError, "artifact_revision must be a string or null" unless revision.nil? || revision.is_a?(String)
@@ -146,21 +139,17 @@ module ProductFactory
     end
 
     def immutable_copy(value)
-      case value
-      when Hash then value.to_h { |key, item| [immutable_copy(key), immutable_copy(item)] }.freeze
-      when Array then value.map { |item| immutable_copy(item) }.freeze
-      when String then value.dup.freeze
-      else value
-      end
+      return value.to_h { |key, item| [immutable_copy(key), immutable_copy(item)] }.freeze if value.is_a?(Hash)
+      return value.map { |item| immutable_copy(item) }.freeze if value.is_a?(Array)
+
+      value.is_a?(String) ? value.dup.freeze : value
     end
 
     def mutable_copy(value)
-      case value
-      when Hash then value.to_h { |key, item| [mutable_copy(key), mutable_copy(item)] }
-      when Array then value.map { |item| mutable_copy(item) }
-      when String then value.dup
-      else value
-      end
+      return value.to_h { |key, item| [mutable_copy(key), mutable_copy(item)] } if value.is_a?(Hash)
+      return value.map { |item| mutable_copy(item) } if value.is_a?(Array)
+
+      value.is_a?(String) ? value.dup : value
     end
   end
 end

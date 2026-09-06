@@ -117,7 +117,8 @@ module ProductFactory
       def installation_matches?(operation)
         validate_installation!(operation)
         state = Installation.load(@root).to_h
-        return false unless state == installation_state(operation)
+        expected = Installation.new(installation_state(operation)).to_h
+        return false unless state == expected
 
         state.fetch("factory_file_hashes").all? { |path, hash| @files.hash(path) == hash }
       rescue Errno::ENOENT, ValidationError, KeyError, TypeError

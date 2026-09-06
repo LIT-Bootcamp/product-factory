@@ -101,10 +101,14 @@ module ProductFactory
       root = fetch("artifacts.root")
       return if adapter == "wiki" && root.equal?(MISSING)
 
-      parts = root.to_s.split(File::SEPARATOR, -1)
-      safe = root.is_a?(String) && !root.include?("\0") && !Pathname.new(root).absolute? &&
-             parts.none? { |part| part.empty? || part == "." || part == ".." }
-      raise ValidationError, "artifacts.root must be a safe relative path" unless safe
+      raise ValidationError, "artifacts.root must be a safe relative path" unless safe_relative_path?(root)
+    end
+
+    def safe_relative_path?(root)
+      return false unless root.is_a?(String) && !root.include?("\0")
+
+      parts = root.split(File::SEPARATOR, -1)
+      !Pathname.new(root).absolute? && parts.none? { |part| part.empty? || part == "." || part == ".." }
     end
 
     def validate_type(path, description)
