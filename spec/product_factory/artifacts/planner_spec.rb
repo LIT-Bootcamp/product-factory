@@ -25,6 +25,21 @@ RSpec.describe ProductFactory::Artifacts::Planner do
     expect(operation.attributes.fetch("expected_hashes").values).to all(be_nil)
   end
 
+  it "captures adapter and compare-and-swap metadata for existing documents" do
+    current_index = "<!-- product-factory:v1:artifact:index -->\n# Existing index\n"
+    snapshot["documents"]["index"] = current_index
+
+    operation = result.fetch(:operations).fetch(0)
+
+    expect(operation.attributes).to include(
+      "adapter" => "repository",
+      "expected_revision" => "REV-1"
+    )
+    expect(operation.attributes.fetch("expected_hashes")).to include(
+      "index" => Digest::SHA256.hexdigest(current_index)
+    )
+  end
+
   it "reports a foreign same-name document with an exact adoption command" do
     snapshot.fetch("documents")["index"] = "# Human index\n"
 
