@@ -16,7 +16,6 @@ module ProductFactory
       Tickets.md tickets/index Research.md research/index Factory-Runs.md factory-runs/index
     ].each_slice(2).to_h.freeze
     LEGACY_PAGES = LEGACY_DOCUMENTS.keys.freeze
-    DOCUMENT_PAGES = LEGACY_DOCUMENTS.invert.freeze
     def self.load(root)
       path = File.join(root, PATH)
       return empty unless File.exist?(path)
@@ -43,12 +42,6 @@ module ProductFactory
     def artifact_adapter = @data["artifact_adapter"]
     def artifact_document_hashes = mutable_copy(@data["artifact_document_hashes"])
     def artifact_revision = @data["artifact_revision"]
-    def wiki_head = artifact_adapter == "wiki" ? artifact_revision : nil
-
-    def wiki_page_hashes
-      @data["artifact_document_hashes"].slice(*DOCUMENT_PAGES.keys).transform_keys { DOCUMENT_PAGES[it] }
-    end
-
     def pending_operations = mutable_copy(@data["pending_operations"])
     def to_h = mutable_copy(@data)
     def with(attributes) = self.class.new(@data.merge(attributes.transform_keys(&:to_s)))

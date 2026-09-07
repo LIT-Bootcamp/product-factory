@@ -6,18 +6,26 @@ product.name:
   type: string
   required: true
   fixed_default: Example Product
-product.context_page:
+product.context_document:
   type: string
   required: true
-  fixed_default: Product-Context
-product.inventory_page:
+  fixed_default: context
+product.inventory_document:
   type: string
   required: true
-  fixed_default: Product-Inventory
+  fixed_default: inventory
 product.max_active_ideas:
   type: integer
   required: false
   fixed_default: 10
+artifacts.adapter:
+  type: string
+  required: true
+  fixed_default: repository
+artifacts.root:
+  type: string
+  required: false
+  fixed_default: product
 github.organization:
   type: string
   required: true

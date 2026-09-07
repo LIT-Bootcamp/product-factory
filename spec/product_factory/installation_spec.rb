@@ -39,8 +39,6 @@ RSpec.describe ProductFactory::Installation do
 
     expect(legacy.artifact_adapter).to eq("wiki")
     expect(legacy.artifact_document_hashes).to eq("ideas/index" => "a" * 64)
-    expect(legacy.wiki_page_hashes).to eq("Ideas.md" => "a" * 64)
-    expect(legacy.wiki_head).to eq("WIKI-1")
     expect(legacy.to_h).to include("artifact_adapter" => "wiki", "artifact_revision" => "WIKI-1")
     expect(legacy.to_h).not_to include("wiki_page_hashes", "wiki_head")
   end

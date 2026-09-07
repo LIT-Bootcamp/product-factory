@@ -12,9 +12,11 @@ fields:
     type: mapping
   github_resource_hashes:
     type: mapping_of_strings
-  wiki_page_hashes:
+  artifact_adapter:
+    type: string_or_null
+  artifact_document_hashes:
     type: mapping_of_strings
-  wiki_head:
+  artifact_revision:
     type: string_or_null
   factory_file_hashes:
     type: mapping_of_strings

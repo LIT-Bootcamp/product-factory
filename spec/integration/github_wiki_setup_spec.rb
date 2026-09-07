@@ -17,7 +17,7 @@ RSpec.describe ProductFactory::CLI do
   it "converges through the CLI and repeats as a no-op" do
     first_output = StringIO.new
     first_error = StringIO.new
-    first_status = run_setup(input: "Bootcamper\nyes\n", output: first_output, error: first_error)
+    first_status = run_setup(input: "yes\n", output: first_output, error: first_error)
     second_output = StringIO.new
     second_error = StringIO.new
     second_status = run_setup(input: "", output: second_output, error: second_error)
@@ -27,7 +27,10 @@ RSpec.describe ProductFactory::CLI do
     expect(github.issue_type_names).to eq(%w[Idea Epic Ticket])
     expect(github.project.fetch("public")).to be(false)
     expect(github.view_names).to eq(%w[Ideas Epics Tickets])
-    expect(wiki_pages.fetch("Home.md")).to eq(home)
+    expect(wiki_page("Home.md")).to eq(home)
+    expect(artifact_store.snapshot.fetch("documents").keys).to match_array(
+      ProductFactory::Artifacts::Planner::DOCUMENT_IDS
+    )
     expect(second_output.string).to include("Product Factory is up to date")
   end
 
@@ -35,7 +38,7 @@ RSpec.describe ProductFactory::CLI do
     failing_github = FakeGitHub.new(fail_once_after: ProductFactory::Operation::ENSURE_PROJECT)
     first_error = StringIO.new
 
-    expect(run_setup(input: "Bootcamper\nyes\n", github: failing_github, error: first_error)).to eq(1)
+    expect(run_setup(input: "yes\n", github: failing_github, error: first_error)).to eq(1)
     output = StringIO.new
     error = StringIO.new
     expect(run_setup(input: "", output:, error:, github: failing_github)).to eq(0), error.string
@@ -57,13 +60,13 @@ RSpec.describe ProductFactory::CLI do
       distribution_root: FileHelpers::FACTORY_ROOT, target_root: target,
       input: StringIO.new(input), output:, clock: -> { Time.utc(2026, 9, 5) },
       shell: ProductFactory::StreamShell.new(output, error), github_client: github,
-      github_state: github, github_writer: github, wiki_repository:
+      github_state: github, github_writer: github, artifact_store:
     )
     ProductFactory::CLI.start(["setup"], input: StringIO.new(input), output:, error:, cwd: target, setup_runner: runner)
   end
 
-  def wiki_repository
-    ProductFactory::Wiki::Repository.new(
+  def artifact_store
+    ProductFactory::Artifacts::Wiki.new(
       organization: "LIT-Bootcamp", repository: "bootcamper",
       shell: ProductFactory::StreamShell.new(StringIO.new, StringIO.new), remote: wiki_remote
     )
@@ -73,6 +76,14 @@ RSpec.describe ProductFactory::CLI do
     FileUtils.mkdir_p(target)
     git!("init", target)
     git!("remote", "add", "origin", "git@github.com:LIT-Bootcamp/bootcamper.git", chdir: target)
+    config = YAML.safe_load_file(File.join(FileHelpers::FACTORY_ROOT, "templates/config.yml"))
+    config.fetch("product")["name"] = "Bootcamper"
+    config.fetch("artifacts").replace("adapter" => "wiki")
+    config["github"] = {
+      "organization" => "LIT-Bootcamp", "repository" => "bootcamper",
+      "project_title" => "Bootcamper Product Factory"
+    }
+    write(target, ProductFactory::Config::PATH, YAML.dump(config))
   end
 
   def create_wiki
@@ -86,7 +97,7 @@ RSpec.describe ProductFactory::CLI do
     git!("push", "origin", "HEAD", chdir: source)
   end
 
-  def wiki_pages = wiki_repository.snapshot.fetch("pages")
+  def wiki_page(name) = git!("--git-dir", wiki_remote, "show", "HEAD:#{name}")
 
   def journal_events
     ProductFactory::Journal.new(
@@ -95,7 +106,9 @@ RSpec.describe ProductFactory::CLI do
   end
 
   def git!(*, chdir: root)
-    _output, error, status = Open3.capture3("git", *, chdir:)
+    output, error, status = Open3.capture3("git", *, chdir:)
     raise error unless status.success?
+
+    output
   end
 end

@@ -18,11 +18,8 @@ RSpec.describe ProductFactory::Setup::Schema do
     )
     expect(schema.dig("markers", "artifact"))
       .to eq("<!-- product-factory:v1:artifact:%#{open_brace}document} -->")
-    expect(schema.dig("markers", "wiki"))
-      .to eq("<!-- product-factory:v1:wiki:%#{open_brace}page} -->")
-    expect(schema.dig("wiki", "pages")).to eq(
-      %w[_Sidebar Setup-Log Ideas Epics Tickets Research Factory-Runs]
-    )
+    expect(schema.fetch("markers").keys).to contain_exactly("issue_type", "project", "artifact")
+    expect(schema).not_to have_key("wiki")
     expect(schema).to be_frozen
   end
 

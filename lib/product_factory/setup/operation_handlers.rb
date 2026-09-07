@@ -3,12 +3,12 @@
 module ProductFactory
   module Setup
     class OperationHandlers
-      def initialize(target_root:, github_writer: nil, github_state: nil, wiki_repository: nil)
+      def initialize(target_root:, github_writer: nil, github_state: nil, artifact_store: nil)
         @root = target_root
         @files = FileSync::Target.new(root: target_root)
         @github_writer = github_writer
         @github_state = github_state
-        @wiki_repository = wiki_repository
+        @artifact_store = artifact_store
       end
 
       def to_h
@@ -29,9 +29,9 @@ module ProductFactory
             handlers[kind] = handler(apply: @github_writer.method(:apply), verify: @github_state.method(:matches?))
           end
         end
-        if @wiki_repository
-          handlers[Operation::SYNC_WIKI] = handler(
-            apply: @wiki_repository.method(:apply), verify: @wiki_repository.method(:matches?)
+        if @artifact_store
+          handlers[Operation::SYNC_ARTIFACTS] = handler(
+            apply: @artifact_store.method(:apply), verify: @artifact_store.method(:matches?)
           )
         end
         handlers
@@ -132,13 +132,13 @@ module ProductFactory
       end
 
       def installation_state(operation)
-        return operation.attributes unless @github_state && @wiki_repository
+        return operation.attributes unless @github_state && @artifact_store
 
         operation.attributes.merge(
           "github_resource_ids" => @github_state.resource_ids,
           "github_resource_hashes" => @github_state.resource_hashes,
-          "wiki_page_hashes" => @wiki_repository.page_hashes,
-          "wiki_head" => @wiki_repository.head
+          "artifact_document_hashes" => @artifact_store.document_hashes,
+          "artifact_revision" => @artifact_store.revision
         )
       end
     end

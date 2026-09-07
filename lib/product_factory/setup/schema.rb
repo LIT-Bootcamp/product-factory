@@ -3,14 +3,12 @@
 module ProductFactory
   module Setup
     class Schema < Service
-      REQUIRED_KEYS = %w[api_version artifacts fields issue_types markers project schema_version views wiki].freeze
+      REQUIRED_KEYS = %w[api_version artifacts fields issue_types markers project schema_version views].freeze
       ARTIFACT_DOCUMENTS = %w[
         index setup-log ideas/index epics/index tickets/index research/index factory-runs/index
       ].freeze
       OPEN_BRACE = "{"
       ARTIFACT_MARKER = "<!-- product-factory:v1:artifact:%#{OPEN_BRACE}document} -->".freeze
-      WIKI_MARKER = "<!-- product-factory:v1:wiki:%#{OPEN_BRACE}page} -->".freeze
-      WIKI_PAGES = %w[_Sidebar Setup-Log Ideas Epics Tickets Research Factory-Runs].freeze
       FIELD_TYPES = %w[date number single_select text].freeze
 
       def initialize(bytes:)
@@ -42,9 +40,7 @@ module ProductFactory
           data.fetch("fields").values.all? { |field| FIELD_TYPES.include?(field["type"]) },
           data.fetch("views").keys == %w[Ideas Epics Tickets],
           data.dig("artifacts", "documents") == ARTIFACT_DOCUMENTS,
-          data.dig("markers", "artifact") == ARTIFACT_MARKER,
-          data.dig("markers", "wiki") == WIKI_MARKER,
-          data.dig("wiki", "pages") == WIKI_PAGES
+          data.dig("markers", "artifact") == ARTIFACT_MARKER
         ].all?
       rescue KeyError, NoMethodError
         false

@@ -8,7 +8,7 @@ RSpec.describe ProductFactory::CLI, :live_github do
       root = File.realpath(temporary)
       target = File.join(root, "application")
       clone_sandbox(target)
-      home = wiki_snapshot.fetch("pages").fetch("Home.md")
+      home = wiki_page("Home.md")
       output = StringIO.new
       first = described_class.start(
         ["setup"], cwd: target, input: setup_input(target), output:, error: output
@@ -50,7 +50,7 @@ RSpec.describe ProductFactory::CLI, :live_github do
       bytes: ProductFactory::Distribution.new(FileHelpers::FACTORY_ROOT).provisioning_schema_bytes
     )
     project = state.resource("github:project")
-    snapshot = wiki_snapshot
+    snapshot = artifact_snapshot
 
     expect(repository_visibility).to eq("PRIVATE")
     expect(config.github.slice("organization", "repository").values.join("/")).to eq(LiveGitHub::REPOSITORY)
@@ -58,11 +58,11 @@ RSpec.describe ProductFactory::CLI, :live_github do
     expect_collection(state.snapshot.fetch("issue_types"), desired_issue_types(schema))
     expect_collection(project.fetch("fields"), desired_fields(schema))
     expect_collection(project.fetch("views"), desired_views(schema))
-    expect(snapshot.fetch("pages").fetch("Home.md")).to eq(home)
-    owned_pages = snapshot.fetch("pages").slice(*ProductFactory::Wiki::Repository::OWNED_PAGES)
-    expect(owned_pages.keys).to match_array(ProductFactory::Wiki::Repository::OWNED_PAGES)
-    owned_pages.each do |name, content|
-      expect(content).to include("product-factory:v1:wiki:#{name.delete_suffix('.md')}")
+    expect(wiki_page("Home.md")).to eq(home)
+    documents = snapshot.fetch("documents")
+    expect(documents.keys).to match_array(ProductFactory::Artifacts::Wiki::PAGES.keys)
+    documents.each do |document, content|
+      expect(content).to include("product-factory:v1:artifact:#{document}")
     end
   end
 
@@ -107,11 +107,22 @@ RSpec.describe ProductFactory::CLI, :live_github do
       .to eq(ProductFactory::GitHub::State.fingerprint(expected))
   end
 
-  def wiki_snapshot
+  def artifact_snapshot
     shell = ProductFactory::StreamShell.new(StringIO.new, StringIO.new)
-    ProductFactory::Wiki::Repository.new(
+    ProductFactory::Artifacts::Wiki.new(
       organization: "LIT-Bootcamp", repository: "product-factory-sandbox", shell:
     ).snapshot
+  end
+
+  def wiki_page(name)
+    Dir.mktmpdir("product-factory-live-wiki") do |directory|
+      checkout = File.join(directory, "wiki")
+      run!(
+        "git", "-c", "credential.https://github.com.helper=!gh auth git-credential",
+        "clone", "--quiet", "https://github.com/#{LiveGitHub::REPOSITORY}.wiki.git", checkout
+      )
+      run!("git", "-C", checkout, "show", "HEAD:#{name}")
+    end
   end
 
   def completed_runs(target)
