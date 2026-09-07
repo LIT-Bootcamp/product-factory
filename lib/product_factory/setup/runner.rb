@@ -14,7 +14,7 @@ module ProductFactory
 
       def initialize(
         distribution_root:, target_root:, input:, output:, clock:, shell: nil, github_client: nil,
-        github_state: nil, github_writer: nil, wiki_repository: nil
+        github_state: nil, github_writer: nil, artifact_store: nil
       )
         @distribution = Distribution.new(distribution_root)
         @target_root = File.expand_path(target_root)
@@ -25,7 +25,7 @@ module ProductFactory
         @github_client = github_client || GitHub::Client.new(shell: @shell)
         @github_state = github_state
         @github_writer = github_writer
-        @wiki_repository = wiki_repository
+        @artifact_store = artifact_store
       end
 
       def run(arguments)
@@ -33,7 +33,7 @@ module ProductFactory
           distribution: @distribution, target_root: @target_root, input: @input, output: @output,
           clock: @clock, shell: @shell, github_client: @github_client,
           github_state: @github_state, github_writer: @github_writer,
-          wiki_repository: @wiki_repository, arguments:
+          artifact_store: @artifact_store, arguments:
         )
       end
 

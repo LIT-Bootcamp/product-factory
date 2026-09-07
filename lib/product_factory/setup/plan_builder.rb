@@ -5,7 +5,7 @@ module ProductFactory
     class PlanBuilder < Service
       def initialize(
         distribution:, target_root:, clock:, plan_validator:, resolutions:, configuration: nil,
-        github_state: nil, wiki_snapshot: nil, schema: nil, adoptions: [], journal_events: []
+        github_state: nil, artifact_snapshot: nil, schema: nil, adoptions: [], journal_events: []
       )
         super()
         @distribution = distribution
@@ -15,7 +15,7 @@ module ProductFactory
         @resolutions = resolutions
         @configuration = configuration
         @github_state = github_state
-        @wiki_snapshot = wiki_snapshot
+        @artifact_snapshot = artifact_snapshot
         @schema = schema
         @adoptions = adoptions
         @journal_events = journal_events
@@ -51,7 +51,8 @@ module ProductFactory
           mode: installed? ? "refresh" : "setup",
           operations:,
           conflicts:,
-          target_root: @target_root
+          target_root: @target_root,
+          configuration_fingerprint: configuration_fingerprint
         )
       end
 
@@ -74,11 +75,13 @@ module ProductFactory
           "last_successful_setup_run" => run_id,
           "pending_operations" => []
         ).to_h
+        state["artifact_adapter"] = configured_adapter if full_setup?
         operations << Operation.new(kind: Operation::WRITE_INSTALLATION, target: Installation::PATH, attributes: state)
       end
 
       def installation_changed?(operations, installation, next_hashes)
-        !installed? || operations.any? || next_hashes != installation.factory_file_hashes
+        !installed? || operations.any? || next_hashes != installation.factory_file_hashes ||
+          (full_setup? && configured_adapter != installation.artifact_adapter)
       end
 
       def add_remote_operations(operations, conflicts, installation, run_id)
@@ -88,18 +91,20 @@ module ProductFactory
         )
         operations.concat(github.fetch(:operations))
         conflicts.concat(github.fetch(:conflicts))
-        wiki = Wiki::Planner.call(
-          schema: @schema, snapshot: @wiki_snapshot, installed_hashes: installation.wiki_page_hashes,
+        artifacts = Artifacts::Planner.call(
+          schema: @schema, snapshot: @artifact_snapshot, installed_hashes: installation.artifact_document_hashes,
           adoptions: @adoptions, run_id:, recorded_at: @clock.call.utc.iso8601,
-          operation_summaries: operations.map(&:target), failures: setup_failures
+          adapter: configured_adapter, operation_summaries: operations.map(&:target), failures: setup_failures
         )
-        operations.concat(wiki.fetch(:operations))
-        conflicts.concat(wiki.fetch(:conflicts))
+        operations.concat(artifacts.fetch(:operations))
+        conflicts.concat(artifacts.fetch(:conflicts))
       end
 
       def setup_failures = @journal_events.select { |event| event["event"] == "operation_failed" }
       def config_bytes = @configuration ? @configuration.fetch(:bytes) : @distribution.config_bytes
+      def configuration_fingerprint = full_setup? ? Digest::SHA256.hexdigest(config_bytes) : nil
       def full_setup? = !@configuration.nil?
+      def configured_adapter = @configuration.fetch(:config).artifacts.fetch("adapter")
 
       def config_exists? = File.exist?(File.join(@target_root, Config::PATH))
       def installed? = File.exist?(File.join(@target_root, Installation::PATH))

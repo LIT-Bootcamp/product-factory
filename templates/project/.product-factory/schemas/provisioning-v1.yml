@@ -4,7 +4,7 @@ api_version: "2026-03-10"
 markers:
   issue_type: "product-factory:v1:issue-type:%{name}"
   project: "product-factory:v1:project:%{organization}/%{repository}"
-  wiki: "<!-- product-factory:v1:wiki:%{page} -->"
+  artifact: "<!-- product-factory:v1:artifact:%{document} -->"
 
 issue_types:
   Idea:
@@ -94,5 +94,5 @@ views:
     issue_type: Ticket
     visible_fields: [Title, Status, Priority, Parent issue, Human Estimate Hours, AI Estimate Hours, Assignees, Linked pull requests]
 
-wiki:
-  pages: [_Sidebar, Setup-Log, Ideas, Epics, Tickets, Research, Factory-Runs]
+artifacts:
+  documents: [index, setup-log, ideas/index, epics/index, tickets/index, research/index, factory-runs/index]

@@ -142,7 +142,7 @@ RSpec.describe ProductFactory::GitHub::Writer do
 
     expect(writer.apply(operation)).to be(true)
     expect(client).to have_received(:graphql).with(
-      a_string_including("updateProjectV2Field"),
+      a_string_including("updateProjectV2Field", "projectV2Field { __typename }"),
       "input" => {
         "fieldId" => "F_1", "name" => "Status",
         "singleSelectOptions" => [{ "name" => "Created", "color" => "GRAY", "description" => "New" }]
@@ -210,21 +210,58 @@ RSpec.describe ProductFactory::GitHub::Writer do
     )
   end
 
-  it "creates non-default views through the REST endpoint" do
+  it "creates a temporarily named non-default view and normalizes its ordered fields" do
     desired = ideas_view.merge("name" => "Epics", "filter" => "type:\"Epic\"")
     operation = build_operation(ProductFactory::Operation::ENSURE_PROJECT_VIEW, "github:view:Epics", desired)
+    temporary_name = "Epics [product-factory:#{operation.id}]"
     allow(state).to receive(:resource).with(operation.target, refresh: true).and_return(nil)
     allow(state).to receive(:resource).with("github:project", refresh: true)
                                       .and_return(project_state.merge("fields" => visible_fields))
-    allow(client).to receive(:post).and_return("id" => "V_2")
+    allow(client).to receive_messages(
+      post: { "id" => 2, "node_id" => "V_2", "number" => 2, "name" => temporary_name, "layout" => "table" },
+      graphql: { "data" => {} }
+    )
 
     writer.apply(operation)
 
     expect(client).to have_received(:post).with(
       "orgs/LIT-Bootcamp/projectsV2/2/views",
       {
-        "name" => "Epics", "layout" => "table", "filter" => "type:\"Epic\"",
+        "name" => temporary_name, "layout" => "table", "filter" => "type:\"Epic\"",
         "visible_fields" => [1, 2]
+      }
+    )
+    expect(client).to have_received(:graphql).with(
+      a_string_including("updateProjectV2View"),
+      "input" => {
+        "viewId" => "V_2", "name" => "Epics", "layout" => "TABLE_LAYOUT",
+        "filter" => "type:\"Epic\"", "configuration" => { "visibleFieldIds" => %w[TITLE STATUS] }
+      }
+    )
+  end
+
+  it "finalizes a non-default view left under its temporary operation name" do
+    desired = ideas_view.merge("name" => "Epics", "filter" => "type:\"Epic\"")
+    operation = build_operation(ProductFactory::Operation::ENSURE_PROJECT_VIEW, "github:view:Epics", desired)
+    temporary = {
+      "id" => "V_2", "number" => 2, "name" => "Epics [product-factory:#{operation.id}]",
+      "layout" => "TABLE", "filter" => "type:\"Epic\"", "visible_fields" => %w[Status Title]
+    }
+    allow(state).to receive(:resource).with(operation.target, refresh: true).and_return(nil)
+    allow(state).to receive(:resource).with("github:project", refresh: true)
+                                      .and_return(project_state.merge("fields" => visible_fields,
+                                                                      "views" => [temporary]))
+    allow(client).to receive(:post)
+    allow(client).to receive(:graphql).and_return("data" => {})
+
+    writer.apply(operation)
+
+    expect(client).not_to have_received(:post)
+    expect(client).to have_received(:graphql).with(
+      a_string_including("updateProjectV2View"),
+      "input" => {
+        "viewId" => "V_2", "name" => "Epics", "layout" => "TABLE_LAYOUT",
+        "filter" => "type:\"Epic\"", "configuration" => { "visibleFieldIds" => %w[TITLE STATUS] }
       }
     )
   end

@@ -1,56 +1,84 @@
 # frozen_string_literal: true
 
 RSpec.describe ProductFactory::Setup::Runner do
-  it "runs first setup and then reports a no-op without another confirmation" do
+  it "runs first setup and then reports a no-op without another confirmation", :aggregate_failures do
     in_tmp_repo do |target|
       github = FakeGitHub.new
-      wiki = FakeWiki.new
+      artifact_store = FakeArtifactStore.new
       first_output = StringIO.new
-      first = build_full_setup(target, github:, wiki:, input: StringIO.new("Bootcamper\nyes\n"), output: first_output)
+      first = build_full_setup(
+        target, github:, artifact_store:, input: StringIO.new("Bootcamper\nyes\n"), output: first_output
+      )
 
       expect(first.run([])).to eq(:success)
       expect(github.issue_type_names).to eq(%w[Idea Epic Ticket])
       expect(github.project.fetch("public")).to be(false)
       expect(github.view_names).to eq(%w[Ideas Epics Tickets])
       expect(first_output.string).to include("CREATE #{ProductFactory::Config::PATH}")
+      expect(first_output.string).to include("SYNC artifacts:documents")
       expect(first_output.string.scan("Apply this plan? [yes/no]").size).to eq(1)
+      installation = ProductFactory::Installation.load(target)
+      expect(installation.artifact_adapter).to eq("repository")
+      expect(installation.artifact_document_hashes).to eq(artifact_store.document_hashes)
+      expect(installation.artifact_revision).to eq(artifact_store.revision)
 
       second_output = StringIO.new
-      second = build_full_setup(target, github:, wiki:, input: StringIO.new, output: second_output)
+      second = build_full_setup(target, github:, artifact_store:, input: StringIO.new, output: second_output)
       expect(second.run([])).to eq(:success)
       expect(second_output.string).to include("Product Factory is up to date")
       expect(second_output.string).not_to include("Apply this plan?")
     end
   end
 
-  it "stops before every target mutation when Wiki preflight fails" do
+  it "does not initialize Wiki storage for repository setup" do
     in_tmp_repo do |target|
-      wiki = instance_double(FakeWiki)
+      setup = build_full_setup(
+        target, github: FakeGitHub.new, artifact_store: nil, input: StringIO.new("Bootcamper\nno\n")
+      )
+
+      expect(setup.run([])).to eq(:declined)
+      expect(Dir.children(target)).to be_empty
+    end
+  end
+
+  it "stops before every target mutation when selected Wiki preflight fails" do
+    in_tmp_repo do |target|
+      config = YAML.safe_load_file(File.join(FileHelpers::FACTORY_ROOT, "templates/config.yml"))
+      config.fetch("artifacts").replace("adapter" => "wiki")
+      config.fetch("github").merge!(
+        "organization" => "LIT-Bootcamp", "repository" => "bootcamper",
+        "project_title" => "Bootcamper Product Factory"
+      )
+      config_bytes = YAML.dump(config)
+      write(target, ProductFactory::Config::PATH, config_bytes)
+      artifact_store = instance_double(FakeArtifactStore)
       failure = ProductFactory::ExternalFailure.new(
         failed_rule: "wiki_home_required", responsible_component: "wiki prerequisite",
         root_cause: "GitHub Wiki has no Home page", impact: "setup stopped",
         recovery_action: "Create the Home page in GitHub Wiki, then rerun product-factory setup"
       )
-      allow(wiki).to receive(:snapshot).and_raise(failure)
-      setup = build_full_setup(target, github: FakeGitHub.new, wiki:, input: StringIO.new("Bootcamper\n"))
+      allow(artifact_store).to receive(:snapshot).and_raise(failure)
+      setup = build_full_setup(target, github: FakeGitHub.new, artifact_store:, input: StringIO.new)
 
       expect { setup.run([]) }.to raise_error(failure)
-      expect(Dir.children(target)).to be_empty
+      expect(File.binread(File.join(target, ProductFactory::Config::PATH))).to eq(config_bytes)
+      expect(Dir.glob(File.join(target, "**/*"), File::FNM_DOTMATCH).reject { |path| File.directory?(path) })
+        .to contain_exactly(File.join(target, ProductFactory::Config::PATH))
     end
   end
 
   it "persists and resumes the confirmed plan without asking again" do
     in_tmp_repo do |target|
       github = FakeGitHub.new(fail_once_after: ProductFactory::Operation::ENSURE_PROJECT)
-      wiki = FakeWiki.new
-      first = build_full_setup(target, github:, wiki:, input: StringIO.new("Bootcamper\nyes\n"))
+      artifact_store = FakeArtifactStore.new
+      first = build_full_setup(target, github:, artifact_store:, input: StringIO.new("Bootcamper\nyes\n"))
 
       expect { first.run([]) }.to raise_error(ProductFactory::ExternalFailure, "simulated interruption")
       plans = Dir.glob(File.join(target, ".product-factory/runs/*.json"))
       expect(plans.size).to eq(1)
 
       output = StringIO.new
-      resumed = build_full_setup(target, github:, wiki:, input: StringIO.new, output:)
+      resumed = build_full_setup(target, github:, artifact_store:, input: StringIO.new, output:)
       expect(resumed.run([])).to eq(:success)
       expect(output.string).to include("Resuming ")
       expect(output.string).not_to include("Apply this plan?")
@@ -58,9 +86,55 @@ RSpec.describe ProductFactory::Setup::Runner do
     end
   end
 
+  it "rejects a resumed repository setup when configuration changed after planning" do
+    in_tmp_repo do |target|
+      github = FakeGitHub.new(fail_once_after: ProductFactory::Operation::ENSURE_PROJECT)
+      first = build_full_setup(target, github:, artifact_store: nil)
+
+      expect { first.run([]) }.to raise_error(ProductFactory::ExternalFailure, "simulated interruption")
+
+      config_path = File.join(target, ProductFactory::Config::PATH)
+      config = YAML.safe_load_file(config_path)
+      config.fetch("artifacts")["root"] = "redirected"
+      File.write(config_path, YAML.dump(config))
+      files_before_resume = Dir.glob(File.join(target, "**/*"), File::FNM_DOTMATCH).sort
+
+      resumed = build_full_setup(target, github:, artifact_store: nil, input: StringIO.new)
+
+      expect { resumed.run([]) }
+        .to raise_error(ProductFactory::ConflictError, "configuration changed after planning")
+      expect(Dir.glob(File.join(target, "**/*"), File::FNM_DOTMATCH).sort).to eq(files_before_resume)
+      expect(File).not_to exist(File.join(target, "product", "README.md"))
+      expect(File).not_to exist(File.join(target, "redirected", "README.md"))
+    end
+  end
+
+  it "rejects configuration changes made after confirmation before executing a new plan" do
+    in_tmp_repo do |target|
+      github = FakeGitHub.new
+      expect(build_full_setup(target, github:, artifact_store: nil).run([])).to eq(:success)
+      artifact_path = File.join(target, "product", "README.md")
+      File.delete(artifact_path)
+      input = StringIO.new("yes\n")
+      allow(input).to receive(:gets).and_wrap_original do |read|
+        config_path = File.join(target, ProductFactory::Config::PATH)
+        config = YAML.safe_load_file(config_path)
+        config.fetch("artifacts")["root"] = "redirected"
+        File.write(config_path, YAML.dump(config))
+        read.call
+      end
+      setup = build_full_setup(target, github:, artifact_store: nil, input:)
+
+      expect { setup.run([]) }
+        .to raise_error(ProductFactory::ConflictError, "configuration changed after planning")
+      expect(File).not_to exist(artifact_path)
+      expect(File).not_to exist(File.join(target, "redirected", "README.md"))
+    end
+  end
+
   it "rejects an unknown adoption key before planning" do
     in_tmp_repo do |target|
-      setup = build_full_setup(target, github: FakeGitHub.new, wiki: FakeWiki.new)
+      setup = build_full_setup(target, github: FakeGitHub.new, artifact_store: FakeArtifactStore.new)
 
       expect { setup.run(["--adopt", "everything"]) }
         .to raise_error(ProductFactory::UsageError, "unknown adoption: everything")
@@ -68,12 +142,53 @@ RSpec.describe ProductFactory::Setup::Runner do
     end
   end
 
+  it "rejects an external plan without a configuration fingerprint" do
+    in_tmp_repo do |target|
+      installation = ProductFactory::Operation.new(
+        kind: ProductFactory::Operation::WRITE_INSTALLATION,
+        target: ProductFactory::Installation::PATH,
+        attributes: ProductFactory::Installation.empty.with("artifact_adapter" => "repository").to_h
+      )
+      plan = ProductFactory::Plan.new(
+        run_id: "RUN-EXTERNAL", mode: "setup", operations: [installation], target_root: target
+      )
+
+      expect { build_setup(target).apply(plan) }
+        .to raise_error(ProductFactory::ValidationError, /configuration fingerprint/)
+      expect(Dir.children(target)).to be_empty
+    end
+  end
+
   it "requires the full semantic adoption key" do
     in_tmp_repo do |target|
-      setup = build_full_setup(target, github: FakeGitHub.new, wiki: FakeWiki.new)
+      setup = build_full_setup(target, github: FakeGitHub.new, artifact_store: FakeArtifactStore.new)
 
       expect { setup.run(["--adopt", "Idea"]) }
         .to raise_error(ProductFactory::UsageError, "unknown adoption: Idea")
+
+      expect(setup.run(["--adopt", "artifact:index"])).to eq(:success)
+    end
+  end
+
+  it "persists an adapter switch when destination documents already match" do
+    in_tmp_repo do |target|
+      artifact_store = FakeArtifactStore.new
+      github = FakeGitHub.new
+      first = build_full_setup(
+        target, github:, artifact_store:, input: StringIO.new("Bootcamper\nyes\n")
+      )
+      expect(first.run([])).to eq(:success)
+
+      path = File.join(target, ProductFactory::Config::PATH)
+      config = YAML.safe_load_file(path)
+      config.fetch("artifacts").replace("adapter" => "wiki")
+      File.write(path, YAML.dump(config))
+      switched = build_full_setup(
+        target, github:, artifact_store:, input: StringIO.new("yes\n")
+      )
+
+      expect(switched.run([])).to eq(:success)
+      expect(ProductFactory::Installation.load(target).artifact_adapter).to eq("wiki")
     end
   end
 
@@ -123,6 +238,27 @@ RSpec.describe ProductFactory::Setup::Runner do
       expect(second.mode).to eq("refresh")
       expect(second.operations).to be_empty
     end
+  end
+
+  it "applies a local refresh that preserves the installed artifact adapter" do
+    distribution = File.realpath(Dir.mktmpdir("product-factory-distribution"))
+    %w[lib templates].each do |directory|
+      FileUtils.cp_r(File.join(FileHelpers::FACTORY_ROOT, directory), distribution)
+    end
+    source = File.join(distribution, "lib/product_factory/version.rb")
+    File.write(source, "#{File.read(source)}\n")
+
+    in_tmp_repo do |target|
+      expect(build_full_setup(target, github: FakeGitHub.new, artifact_store: nil).run([])).to eq(:success)
+      setup = build_setup(target, distribution_root: distribution)
+      plan = setup.plan
+
+      expect(plan.configuration_fingerprint).to be_nil
+      expect(plan.operations.last.attributes.fetch("artifact_adapter")).to eq("repository")
+      expect(setup.apply(plan)).to eq(:success)
+    end
+  ensure
+    FileUtils.remove_entry(distribution) if distribution && File.exist?(distribution)
   end
 
   it "rejects a plan for another target before asking or writing a journal" do
@@ -291,9 +427,9 @@ RSpec.describe ProductFactory::Setup::Runner do
     end
   end
 
-  def build_setup(target)
+  def build_setup(target, distribution_root: FileHelpers::FACTORY_ROOT)
     described_class.new(
-      distribution_root: FileHelpers::FACTORY_ROOT,
+      distribution_root:,
       target_root: target,
       input: StringIO.new("yes\n"),
       output: StringIO.new,
@@ -301,7 +437,9 @@ RSpec.describe ProductFactory::Setup::Runner do
     )
   end
 
-  def build_full_setup(target, github:, wiki:, input: StringIO.new("Bootcamper\nyes\n"), output: StringIO.new)
+  def build_full_setup(
+    target, github:, artifact_store:, input: StringIO.new("Bootcamper\nyes\n"), output: StringIO.new
+  )
     status = instance_double(Process::Status, success?: true, exitstatus: 0)
     shell = instance_double(ProductFactory::StreamShell)
     allow(shell).to receive(:capture3).and_return(["git@github.com:LIT-Bootcamp/bootcamper.git\n", "", status])
@@ -315,7 +453,7 @@ RSpec.describe ProductFactory::Setup::Runner do
       github_client: github,
       github_state: github,
       github_writer: github,
-      wiki_repository: wiki
+      artifact_store:
     )
   end
 end

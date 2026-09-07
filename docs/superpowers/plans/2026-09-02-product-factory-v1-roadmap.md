@@ -21,21 +21,21 @@ Delivers:
 
 Exit proof: a temporary Rails repository can install managed local files, repeat as a no-op, refresh changed upstream files, preserve local-only edits, stop on a real three-way conflict, and resume an interrupted apply.
 
-## Slice 2: GitHub and Wiki provisioning
+## Slice 2: GitHub and artifact storage provisioning
 
 Delivers:
 
 - `gh auth` permission preflight;
 - organization Issue Types;
 - one organization Project with Ideas, Epics, and Tickets views and the fixed v1 fields;
-- Wiki clone/bootstrap and immutable semantic pages;
+- repository-default artifact bootstrap with optional Wiki storage;
 - stable operation markers, resource adoption, collision handling, and read-after-write verification;
-- recoverable Issue reservation -> Wiki commit -> Issue/Project projection;
-- Project/Wiki drift detection.
+- recoverable Issue reservation -> artifact publication -> Issue/Project projection;
+- Project/artifact drift detection.
 
 Exit proof: a marked sandbox repository can be provisioned, re-planned as a no-op, interrupted after any external operation, resumed without duplicates, and inspected against the design's exact resource contract.
 
-The release sandbox is private. An organization owner creates it and its first Wiki `Home` page once; normal CI never mutates it.
+The release sandbox is private and uses repository artifacts. An organization owner creates the repository once; normal CI never mutates it.
 
 ## Slice 3: Product context, inventory, and Ideation
 
@@ -43,7 +43,7 @@ Delivers:
 
 - Product Context wizard publication;
 - Product Inventory BA + Manual QA workflow and human approval gate;
-- Idea schema/template/log/run pages;
+- Idea schema/template/log/run documents;
 - `$product-inventory`, `$ideation`, `$idea-approve`, and `$idea-revise`;
 - active-Idea capacity, priority, evidence freshness, and Created-only automatic revision rules;
 - compact deterministic agent context assembly.
@@ -62,7 +62,7 @@ Delivers:
 - semantic re-analysis without deleting existing Epics;
 - material-ambiguity Needs human recovery.
 
-Exit proof: two concurrent Analyze invocations claim different Ideas, publish complete immutable Epic versions with native hierarchy, and a killed run resumes without duplicate Issues or Wiki versions.
+Exit proof: two concurrent Analyze invocations claim different Ideas, publish complete immutable Epic versions with native hierarchy, and a killed run resumes without duplicate Issues or artifact versions.
 
 ## Slice 5: Technical analysis and release qualification
 
@@ -80,7 +80,7 @@ Exit proof: the highest-priority eligible Epic becomes Tech analyzed, every scen
 
 ## Cross-slice constraints
 
-- Wiki artifacts remain canonical; Issues and Project fields remain projections.
+- The configured artifact store remains canonical; Issues and Project fields remain projections.
 - No hosted service, database, GitHub Pages, backlog delivery, implementation, or pull-request lifecycle is added in v1.
 - No LLM performs selection, status transitions, claims, IDs, hashes, diffs, synchronization, validation, or log generation.
 - Every external mutation is planned, marked, journaled, verified, and resumable.
@@ -93,7 +93,7 @@ Exit proof: the highest-priority eligible Epic becomes Tech analyzed, every scen
 |---|---|
 | 1-2 Purpose and principles | All slices as global constraints |
 | 3-5 Distribution, setup, refresh, configuration | Slice 1 local mechanics; Slice 2 GitHub wizard and provisioning |
-| 6-9 GitHub model, fields, states, Wiki | Slice 2 |
+| 6-9 GitHub model, fields, states, artifact storage | Slice 2 |
 | 10 Artifact contracts | Slices 3-5 by entity type |
 | 11 Product Inventory | Slice 3 |
 | 12 Agents | Slices 3-5 by role |

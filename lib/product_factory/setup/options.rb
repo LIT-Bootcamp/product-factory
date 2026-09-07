@@ -41,8 +41,9 @@ module ProductFactory
 
       def valid_adoption?(value)
         issue = value&.start_with?("issue-type:") && %w[Idea Epic Ticket].include?(value.delete_prefix("issue-type:"))
-        wiki = Wiki::Repository::OWNED_PAGES.map { |name| "wiki:#{name.delete_suffix('.md')}" }.include?(value)
-        value == "project" || issue || wiki
+        artifact = Artifacts::Planner::DOCUMENT_IDS.include?(value&.delete_prefix("artifact:")) &&
+                   value.start_with?("artifact:")
+        value == "project" || issue || artifact
       end
     end
   end

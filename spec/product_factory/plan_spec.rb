@@ -49,6 +49,7 @@ RSpec.describe ProductFactory::Plan do
   it "round-trips through JSON without exposing plan data to mutation" do
     run_id = "RUN-1".dup
     mode = "refresh".dup
+    configuration_fingerprint = ("a" * 64).dup
     operations = [
       ProductFactory::Operation.new(
         kind: "write_file",
@@ -57,10 +58,11 @@ RSpec.describe ProductFactory::Plan do
       )
     ]
     conflicts = [{ "path" => ["a".dup] }]
-    plan = described_class.new(run_id:, mode:, operations:, conflicts:)
+    plan = described_class.new(run_id:, mode:, operations:, conflicts:, configuration_fingerprint:)
 
     run_id << "-changed"
     mode << "-changed"
+    configuration_fingerprint << "changed"
     operations.clear
     conflicts.first["path"] << "changed"
 
@@ -73,6 +75,7 @@ RSpec.describe ProductFactory::Plan do
       expect(File.read(path)).to end_with("\n")
     end
     expect { plan.conflicts.first["path"] << "changed" }.to raise_error(FrozenError)
+    expect { plan.configuration_fingerprint << "changed" }.to raise_error(FrozenError)
   end
 
   it "rejects malformed and tampered JSON" do
@@ -93,6 +96,18 @@ RSpec.describe ProductFactory::Plan do
 
       expect { described_class.load(tampered) }
         .to raise_error(ProductFactory::ValidationError, /operation ID/)
+
+      plan = described_class.new(
+        run_id: "RUN-1", mode: "refresh", operations: [], configuration_fingerprint: "a" * 64
+      )
+      invalid_fingerprint = File.join(root, "invalid-fingerprint.json")
+      plan.write(invalid_fingerprint)
+      data = JSON.parse(File.read(invalid_fingerprint))
+      data["configuration_fingerprint"] = "invalid"
+      File.write(invalid_fingerprint, JSON.generate(data))
+
+      expect { described_class.load(invalid_fingerprint) }
+        .to raise_error(ProductFactory::ValidationError, /configuration fingerprint/)
 
       write(root, "invalid-shape.json", JSON.generate(
                                           "run_id" => "RUN-1",

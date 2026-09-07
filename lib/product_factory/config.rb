@@ -5,7 +5,7 @@ module ProductFactory
     PATH = ".product-factory/config.yml"
 
     attr_reader :schema_version, :product, :github, :research, :workflow,
-                :agents, :qa, :knowledge
+                :agents, :artifacts, :qa, :knowledge
 
     def self.load(root)
       path = File.join(root, PATH)
@@ -33,6 +33,7 @@ module ProductFactory
       @research = @data.fetch("research")
       @workflow = @data.fetch("workflow")
       @agents = @data.fetch("agents", {})
+      @artifacts = @data.fetch("artifacts")
       @qa = @data.fetch("qa", {})
       @knowledge = @data.fetch("knowledge", {})
     end

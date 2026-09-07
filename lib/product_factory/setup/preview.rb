@@ -31,7 +31,7 @@ module ProductFactory
       end
 
       def verb(operation, reason)
-        return "SYNC" if operation.kind == Operation::SYNC_WIKI
+        return "SYNC" if operation.kind == Operation::SYNC_ARTIFACTS
         return "ADOPT" if reason == "adopted"
         return "CREATE" if operation.kind == Operation::SEED_CONFIG
         return "CREATE" if new_file?(operation)

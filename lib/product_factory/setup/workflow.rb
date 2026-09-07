@@ -5,7 +5,7 @@ module ProductFactory
     class Workflow < Service
       def initialize(
         distribution:, target_root:, input:, output:, clock:, shell:, github_client:,
-        github_state: nil, github_writer: nil, wiki_repository: nil, arguments: []
+        github_state: nil, github_writer: nil, artifact_store: nil, arguments: []
       )
         super()
         @distribution = distribution
@@ -17,7 +17,7 @@ module ProductFactory
         @github_client = github_client
         @github_state = github_state
         @github_writer = github_writer
-        @wiki_repository = wiki_repository
+        @artifact_store = artifact_store
         @arguments = arguments
       end
 
@@ -33,8 +33,8 @@ module ProductFactory
         )
         prepare_external(configuration.fetch(:config))
         @github_state.snapshot
-        wiki_snapshot = @wiki_repository.snapshot
-        plan = build_plan(configuration, wiki_snapshot, options)
+        artifact_snapshot = @artifact_store.snapshot
+        plan = build_plan(configuration, artifact_snapshot, options)
         Preview.call(plan:, output: @output, target_root: @target_root)
         raise ConflictError, "plan has conflicts" unless plan.applicable?
         return complete_noop(plan) if plan.operations.empty?
@@ -46,25 +46,28 @@ module ProductFactory
 
       private
 
-      def build_plan(configuration, wiki_snapshot, options)
+      def build_plan(configuration, artifact_snapshot, options)
         PlanBuilder.call(
           distribution: @distribution, target_root: @target_root, clock: @clock,
           plan_validator:, resolutions: options.fetch(:resolutions), configuration:,
-          github_state: @github_state, wiki_snapshot:, schema: provisioning_schema,
+          github_state: @github_state, artifact_snapshot:, schema: provisioning_schema,
           adoptions: options.fetch(:adoptions), journal_events: run_store.journal.events
         )
       end
 
       def resume(plan)
+        validate_plan!(plan)
+        validate_configuration!(plan)
         prepare_external(config_from(plan))
         @github_state.snapshot
-        @wiki_repository.snapshot
+        @artifact_store.snapshot
         @output.puts("Resuming #{plan.run_id}")
         execute(plan)
       end
 
       def execute(plan)
         validate_plan!(plan)
+        validate_configuration!(plan)
         handlers.validate_preconditions!(plan)
         Executor.new(journal: run_store.journal, handlers: handlers.to_h).apply(plan)
       end
@@ -72,23 +75,38 @@ module ProductFactory
       def prepare_external(config)
         @github_state ||= GitHub::State.new(config:, client: @github_client)
         @github_writer ||= GitHub::Writer.new(config:, client: @github_client, state: @github_state)
-        wiki_repository(config)
+        artifact_store(config)
       end
 
-      def wiki_repository(config)
-        @wiki_repository ||= Wiki::Repository.new(
-          organization: config.github.fetch("organization"),
-          repository: config.github.fetch("repository"), shell: @shell
-        )
+      def artifact_store(config)
+        @artifact_store ||= Artifacts.build(config:, target_root: @target_root, shell: @shell)
       end
 
       def config_from(plan)
         return Config.load(@target_root) if File.exist?(File.join(@target_root, Config::PATH))
 
+        Config.new(YAML.safe_load(seed_config_bytes(plan), aliases: false))
+      end
+
+      def validate_configuration!(plan)
+        return unless plan.configuration_fingerprint
+        return if Digest::SHA256.hexdigest(config_bytes(plan)) == plan.configuration_fingerprint
+
+        raise ConflictError, "configuration changed after planning"
+      end
+
+      def config_bytes(plan)
+        path = File.join(@target_root, Config::PATH)
+        return File.binread(path) if File.exist?(path)
+
+        seed_config_bytes(plan)
+      end
+
+      def seed_config_bytes(plan)
         seed = plan.operations.find { |operation| operation.kind == Operation::SEED_CONFIG }
         raise ValidationError, "stored plan has no configuration" unless seed
 
-        Config.new(YAML.safe_load(seed.attributes.fetch("content_base64").unpack1("m0"), aliases: false))
+        seed.attributes.fetch("content_base64").unpack1("m0")
       end
 
       def validate_plan!(plan)
@@ -115,7 +133,7 @@ module ProductFactory
       def handlers
         @handlers ||= OperationHandlers.new(
           target_root: @target_root, github_writer: @github_writer,
-          github_state: @github_state, wiki_repository: @wiki_repository
+          github_state: @github_state, artifact_store: @artifact_store
         )
       end
     end

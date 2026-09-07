@@ -17,7 +17,7 @@ module ProductFactory
         validate_hashes!(installed_hashes, current_targets: sources.keys)
         @operations = plan.operations
         @factory_targets = sources.keys | installed_hashes.keys
-        validate_operations!
+        validate_operations!(plan, installed_adapter: installation.artifact_adapter)
       end
 
       def validate_hashes!(hashes, current_targets:)
@@ -30,7 +30,8 @@ module ProductFactory
 
       private
 
-      def validate_operations!
+      def validate_operations!(plan, installed_adapter:)
+        plan.validate_configuration_binding!(installed_adapter:)
         validate_types!
         validate_config!
         validate_files!
@@ -42,13 +43,13 @@ module ProductFactory
       def config_operations = @operations.select { |operation| operation.kind == Operation::SEED_CONFIG }
       def file_operations = @operations.select { |operation| FILE_KINDS.include?(operation.kind) }
       def github_operations = @operations.select { |operation| Operation::GITHUB_KINDS.include?(operation.kind) }
-      def wiki_operations = @operations.select { |operation| operation.kind == Operation::SYNC_WIKI }
+      def artifact_operations = @operations.select { |operation| operation.kind == Operation::SYNC_ARTIFACTS }
 
       def installation_operations = @operations.select { |operation| operation.kind == Operation::WRITE_INSTALLATION }
 
       def validate_types!
         known_count = config_operations.length + file_operations.length + github_operations.length +
-                      wiki_operations.length + installation_operations.length
+                      artifact_operations.length + installation_operations.length
         raise ValidationError, "plan contains unsupported operation" unless @operations.length == known_count
       end
 
@@ -73,10 +74,12 @@ module ProductFactory
           valid = operation.target.start_with?("github:") && operation.attributes["desired"].is_a?(Hash)
           raise ValidationError, "plan has invalid GitHub operation" unless valid
         end
-        wiki_operations.each do |operation|
-          valid = operation.target == "wiki:factory-pages" && operation.attributes["pages"].is_a?(Hash)
-          raise ValidationError, "plan has invalid Wiki operation" unless valid
-        end
+        validate_artifacts!
+      end
+
+      def validate_artifacts!
+        valid = artifact_operations.length <= 1 && artifact_operations.all? { Artifacts.valid_operation?(it) }
+        raise ValidationError, "plan has invalid artifact operation" unless valid
       end
 
       def validate_file!(operation)
@@ -121,9 +124,9 @@ module ProductFactory
 
       def validate_order!
         return if @operations.empty?
-        unless installation_operations.one? && @operations.last == installation_operations.first
-          raise ValidationError, "plan must end with installation state"
-        end
+
+        valid_installation = installation_operations.one? && @operations.last == installation_operations.first
+        raise ValidationError, "plan must end with installation state" unless valid_installation
 
         raise ValidationError, "plan operation order is invalid" unless @operations == ordered_operations
       end
@@ -134,7 +137,7 @@ module ProductFactory
           Operation::ENSURE_PROJECT_FIELD, Operation::ENSURE_PROJECT_VIEW
         ]
         github = kinds.flat_map { |kind| github_operations.select { |operation| operation.kind == kind } }
-        config_operations + file_operations + github + wiki_operations + installation_operations
+        config_operations + file_operations + github + artifact_operations + installation_operations
       end
 
       def factory_target?(path, current_targets:)

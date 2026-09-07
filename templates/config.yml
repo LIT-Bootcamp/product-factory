@@ -2,9 +2,13 @@ schema_version: 1
 
 product:
   name: Example Product
-  context_page: Product-Context
-  inventory_page: Product-Inventory
+  context_document: context
+  inventory_document: inventory
   max_active_ideas: 10
+
+artifacts:
+  adapter: repository
+  root: product
 
 github:
   organization: example-org
