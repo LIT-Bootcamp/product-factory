@@ -53,12 +53,12 @@ module ProductFactory
     def normalize_legacy!
       product = @data.fetch("product", {})
       artifacts = @data["artifacts"]
-      if artifacts.nil?
-        @data["artifacts"] = { "adapter" => "wiki" }
-        return unless product.is_a?(Hash)
-
+      if product.is_a?(Hash)
         product["context_document"] ||= product.delete("context_page")
         product["inventory_document"] ||= product.delete("inventory_page")
+      end
+      if artifacts.nil?
+        @data["artifacts"] = { "adapter" => "wiki" }
       elsif artifacts.is_a?(Hash) && artifacts["adapter"] == "repository"
         artifacts["root"] ||= "product"
       end
