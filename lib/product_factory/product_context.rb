@@ -24,8 +24,8 @@ module ProductFactory
     end
 
     def call
-      documents = { landing_id => landing_document }
-      documents[version_id] = version_document unless version_exists?
+      documents = { landing_id => render(landing_lines) }
+      documents[version_id] = render(version_lines) unless version_exists?
       documents
     end
 
@@ -45,22 +45,30 @@ module ProductFactory
       snapshot.fetch("documents", {}).key?(version_id)
     end
 
-    def landing_document
+    def landing_lines
       [
         marker(landing_id),
         "# Product Context — #{product_name}",
         "",
         "Current version: [v1](#{version_link})",
         "",
-        required_answer("mission")
-      ].join("\n") + "\n"
+        required_answer("mission"),
+        ""
+      ]
     end
 
-    def version_document
+    def version_lines
       [
         marker(version_id),
         "# Product Context — #{product_name}",
         "",
+        *metadata_lines,
+        *section_lines
+      ]
+    end
+
+    def metadata_lines
+      [
         "| Field | Value |",
         "|---|---|",
         "| Version | 1 |",
@@ -68,31 +76,29 @@ module ProductFactory
         "| Created by | #{table_value(actor)} |",
         "| Factory run | #{table_value(run_id)} |",
         "| Change reason | Initial Product Context |",
-        "",
-        "## Mission",
-        required_answer("mission"),
-        "",
-        "## Target Users",
-        required_answer("target_users"),
-        "",
-        "## Primary User Problem",
-        required_answer("primary_user_problem"),
-        "",
-        "## Desired Outcome",
-        required_answer("desired_outcome"),
-        "",
-        "## Markets and Languages",
-        required_answer("markets_and_languages"),
-        "",
-        "## Competitor Seeds",
-        optional_answer("competitor_seeds"),
-        "",
-        "## Constraints",
-        optional_answer("constraints"),
-        "",
-        "## Non-goals",
-        optional_answer("non_goals")
-      ].join("\n") + "\n"
+        ""
+      ]
+    end
+
+    def section_lines
+      [
+        content_section("Mission", required_answer("mission")),
+        content_section("Target Users", required_answer("target_users")),
+        content_section("Primary User Problem", required_answer("primary_user_problem")),
+        content_section("Desired Outcome", required_answer("desired_outcome")),
+        content_section("Markets and Languages", required_answer("markets_and_languages")),
+        content_section("Competitor Seeds", optional_answer("competitor_seeds")),
+        content_section("Constraints", optional_answer("constraints")),
+        content_section("Non-goals", optional_answer("non_goals"))
+      ].flatten
+    end
+
+    def content_section(title, body)
+      ["## #{title}", body, ""]
+    end
+
+    def render(lines)
+      lines.join("\n")
     end
 
     def required_answer(key)
