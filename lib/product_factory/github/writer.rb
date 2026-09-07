@@ -14,7 +14,8 @@ module ProductFactory
       def apply(operation)
         validate_kind!(operation)
         current = @state.resource(operation.target, refresh: true)
-        return true if desired?(current, operation)
+        desired = operation.attributes.fetch("desired")
+        return true if current && State.fingerprint(current) == State.fingerprint(desired)
 
         verify_precondition!(operation, current)
         send("apply_#{operation.kind}", operation, current)
@@ -44,8 +45,8 @@ module ProductFactory
 
       def create_project(operation, desired)
         input = {
-          "ownerId" => snapshot.dig("organization", "id"),
-          "repositoryId" => snapshot.dig("repository", "id"),
+          "ownerId" => @state.snapshot.dig("organization", "id"),
+          "repositoryId" => @state.snapshot.dig("repository", "id"),
           "title" => temporary_title(desired),
           "clientMutationId" => operation.id
         }
@@ -62,7 +63,7 @@ module ProductFactory
       end
 
       def link_project(current)
-        input = { "projectId" => current.fetch("id"), "repositoryId" => snapshot.dig("repository", "id") }
+        input = { "projectId" => current.fetch("id"), "repositoryId" => @state.snapshot.dig("repository", "id") }
         @client.graphql(Mutations::LINK_PROJECT, "input" => input)
       end
 
@@ -91,10 +92,11 @@ module ProductFactory
       def apply_ensure_project_view(operation, current)
         desired = operation.attributes.fetch("desired")
         project = project_state
+        temporary_name = "#{desired.fetch('name')} [product-factory:#{operation.id}]"
         current ||= default_view(project, desired)
-        return update_view(project, current, desired) if current
-
-        create_view(project, desired)
+        current ||= project.fetch("views", []).find { |view| view["name"] == temporary_name }
+        current ||= create_view(project, desired, temporary_name)
+        update_view(project, current, desired)
       end
 
       def default_view(project, desired)
@@ -103,9 +105,10 @@ module ProductFactory
         project.fetch("views", []).find { |view| view["name"] == "View 1" }
       end
 
-      def create_view(project, desired)
-        body = Payloads.rest_view(project, desired).merge("name" => desired.fetch("name"), "layout" => "table")
-        @client.post("orgs/#{organization}/projectsV2/#{project.fetch('number')}/views", body)
+      def create_view(project, desired, temporary_name)
+        body = Payloads.rest_view(project, desired).merge("name" => temporary_name, "layout" => "table")
+        created = @client.post("orgs/#{organization}/projectsV2/#{project.fetch('number')}/views", body)
+        { "id" => created.fetch("node_id") }
       end
 
       def update_view(project, current, desired)
@@ -140,10 +143,6 @@ module ProductFactory
           project_state.fetch("item_count").zero?
       end
 
-      def desired?(current, operation)
-        current && State.fingerprint(current) == State.fingerprint(operation.attributes.fetch("desired"))
-      end
-
       def temporary_title(desired) = "#{desired.fetch('title')} [#{desired.fetch('short_description')}]"
 
       def validate_kind!(operation)
@@ -154,7 +153,6 @@ module ProductFactory
 
       def organization = @github.fetch("organization")
       def repository_name = "#{organization}/#{@github.fetch('repository')}"
-      def snapshot = @state.snapshot
     end
   end
 end
