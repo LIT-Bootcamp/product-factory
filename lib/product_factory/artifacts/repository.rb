@@ -52,7 +52,7 @@ module ProductFactory
 
       def matches?(operation)
         validate_operation!(operation)
-        desired?(refresh_snapshot, operation.attributes.fetch("documents"))
+        snapshot_matches?(refresh_snapshot, operation)
       end
 
       def revision = snapshot.fetch("revision")
@@ -112,6 +112,15 @@ module ProductFactory
         desired.all? { |document, content| current.fetch("documents")[document] == content }
       end
 
+      def snapshot_matches?(current, operation)
+        desired = operation.attributes.fetch("documents")
+        expected = operation.attributes.fetch("expected_hashes")
+        PATHS.keys.all? do |document|
+          content = current.fetch("documents")[document]
+          desired.key?(document) ? content == desired.fetch(document) : digest(content) == expected.fetch(document)
+        end
+      end
+
       def verify_revision!(operation, current)
         return if current.fetch("revision") == operation.attributes.fetch("expected_revision")
 
@@ -127,20 +136,8 @@ module ProductFactory
 
       def validate_operation!(operation)
         attributes = operation.attributes
-        valid = operation.kind == Operation::SYNC_ARTIFACTS && operation.target == "artifacts:documents" &&
-                attributes["adapter"] == "repository" && attributes["expected_revision"].is_a?(String) &&
-                valid_hashes?(attributes["expected_hashes"]) && valid_documents?(attributes["documents"])
+        valid = Artifacts.valid_operation?(operation) && attributes["adapter"] == "repository"
         raise ValidationError, "invalid repository artifact operation" unless valid
-      end
-
-      def valid_hashes?(hashes)
-        hashes.is_a?(Hash) && hashes.keys.sort == PATHS.keys.sort &&
-          hashes.values.all? { |hash| hash.nil? || hash.match?(/\A[0-9a-f]{64}\z/) }
-      end
-
-      def valid_documents?(documents)
-        documents.is_a?(Hash) && documents.keys.all? { |document| PATHS.key?(document) } &&
-          documents.values.all?(String)
       end
 
       def digest(content) = content && Digest::SHA256.hexdigest(content)

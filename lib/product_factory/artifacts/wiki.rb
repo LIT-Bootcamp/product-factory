@@ -44,7 +44,7 @@ module ProductFactory
       def matches?(operation)
         validate_operation!(operation)
         @snapshot = nil
-        desired?(snapshot, operation.attributes.fetch("documents"))
+        snapshot_matches?(snapshot, operation)
       end
 
       def revision = snapshot.fetch("revision")
@@ -131,13 +131,9 @@ module ProductFactory
 
       def validate_operation!(operation)
         attributes = operation.attributes
-        valid = operation.kind == Operation::SYNC_ARTIFACTS && operation.target == "artifacts:documents" &&
-                attributes["adapter"] == "wiki" && attributes["expected_revision"].is_a?(String) &&
-                valid_documents?(attributes["documents"])
+        valid = Artifacts.valid_operation?(operation) && attributes["adapter"] == "wiki"
         raise ValidationError, "invalid Artifacts operation" unless valid
       end
-
-      def valid_documents?(value) = value.is_a?(Hash) && value.keys.all? { PAGES.key?(it) } && value.values.all?(String)
 
       def verify_revision!(operation, current)
         raise ConflictError, "Artifacts changed after planning" if
@@ -145,6 +141,17 @@ module ProductFactory
       end
 
       def desired?(state, desired) = desired.all? { |document, content| state.dig("documents", document) == content }
+
+      def snapshot_matches?(state, operation)
+        desired = operation.attributes.fetch("documents")
+        expected = operation.attributes.fetch("expected_hashes")
+        PAGES.keys.all? do |document|
+          content = state.fetch("documents")[document]
+          desired.key?(document) ? content == desired.fetch(document) : digest(content) == expected.fetch(document)
+        end
+      end
+
+      def digest(content) = content && Digest::SHA256.hexdigest(content)
 
       def legacy_marker(page) = "<!-- product-factory:v1:wiki:#{File.basename(page, '.md')} -->"
 

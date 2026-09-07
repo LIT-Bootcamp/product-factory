@@ -66,6 +66,14 @@ RSpec.describe ProductFactory::Artifacts::Repository do
     expect(File.read(File.join(target, "product/ideas/README.md"))).to eq(documents.fetch("ideas/index"))
   end
 
+  it "does not match when another managed document drifts after synchronization" do
+    operation = sync_operation(documents: { "index" => "factory\n" })
+    adapter.apply(operation)
+    write(target, "product/setup-log.md", "human\n")
+
+    expect(adapter.matches?(operation)).to be(false)
+  end
+
   it "rejects absolute and traversal artifact roots" do
     [File.join(target, "product"), "../product"].each do |unsafe_root|
       expect { described_class.new(target_root: target, root: unsafe_root) }

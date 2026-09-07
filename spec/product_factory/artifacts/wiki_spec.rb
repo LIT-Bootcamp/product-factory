@@ -88,6 +88,24 @@ RSpec.describe ProductFactory::Artifacts::Wiki do
     expect(adapter.revision).to eq(applied_revision)
   end
 
+  it "does not match when another managed document drifts after synchronization" do
+    operation = sync_operation({ "ideas/index" => "factory\n" })
+    adapter.apply(operation)
+    change_wiki("Tickets.md" => "human\n")
+
+    expect(adapter.matches?(operation)).to be(false)
+  end
+
+  it "rejects operations without the complete expected document hashes" do
+    operation = sync_operation({ "ideas/index" => "factory\n" })
+    incomplete = ProductFactory::Operation.new(
+      kind: operation.kind, target: operation.target, attributes: operation.attributes.except("expected_hashes")
+    )
+
+    expect { adapter.matches?(incomplete) }
+      .to raise_error(ProductFactory::ValidationError, "invalid Artifacts operation")
+  end
+
   private
 
   def create_wiki(home:, **pages)
@@ -124,6 +142,15 @@ RSpec.describe ProductFactory::Artifacts::Wiki do
       content = snapshot.fetch("documents")[document]
       [document, content && Digest::SHA256.hexdigest(content)]
     end
+  end
+
+  def change_wiki(**pages)
+    checkout = File.join(root, "change-#{Dir.children(root).length}")
+    git!("clone", "-q", remote, checkout)
+    pages.each { |name, content| File.binwrite(File.join(checkout, name), content) }
+    git!("add", "--", *pages.keys, chdir: checkout)
+    git!("-c", "user.name=Human", "-c", "user.email=human@example.com", "commit", "-qm", "Human edit", chdir: checkout)
+    git!("push", "-q", "origin", "HEAD", chdir: checkout)
   end
 
   def wiki_pages
