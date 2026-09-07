@@ -9,7 +9,7 @@ module ProductFactory
       )
         super()
         @distribution = distribution
-        @target_root = target_root
+        @root = target_root
         @input = input
         @output = output
         @clock = clock
@@ -28,14 +28,15 @@ module ProductFactory
         return resume(pending) if pending
 
         configuration = Configuration.call(
-          distribution: @distribution, target_root: @target_root, input: @input, output: @output,
+          distribution: @distribution, target_root: @root, input: @input, output: @output,
           github_client: @github_client, shell: @shell
         )
-        prepare_external(configuration.fetch(:config))
+        config = configuration.fetch(:config)
+        prepare_external(config)
         @github_state.snapshot
-        artifact_snapshot = @artifact_store.snapshot
-        plan = build_plan(configuration, artifact_snapshot, options)
-        Preview.call(plan:, output: @output, target_root: @target_root)
+        artifact_snapshot, product_context = snapshot_product_context(config)
+        plan = build_plan(configuration, artifact_snapshot, options, product_context:)
+        Preview.call(plan:, output: @output, target_root: @root)
         raise ConflictError, "plan has conflicts" unless plan.applicable?
         return complete_noop(plan) if plan.operations.empty?
         return :declined unless confirmed?
@@ -46,21 +47,33 @@ module ProductFactory
 
       private
 
-      def build_plan(configuration, artifact_snapshot, options)
+      def build_plan(configuration, artifact_snapshot, options, product_context:)
         PlanBuilder.call(
-          distribution: @distribution, target_root: @target_root, clock: @clock,
+          distribution: @distribution, target_root: @root, clock: @clock,
           plan_validator:, resolutions: options.fetch(:resolutions), configuration:,
           github_state: @github_state, artifact_snapshot:, schema: provisioning_schema,
-          adoptions: options.fetch(:adoptions), journal_events: run_store.journal.events
+          adoptions: options.fetch(:adoptions), journal_events: run_store.journal.events,
+          product_context:, actor: "human:#{ENV.fetch('USER', 'unknown')}",
+          version_link: @artifact_store.link(ProductContext.document_ids(configuration.fetch(:config)).last)
         )
+      end
+
+      def snapshot_product_context(config)
+        document_ids = Artifacts::Planner::DOCUMENT_IDS + ProductContext.document_ids(config)
+        snapshot = @artifact_store.snapshot(document_ids:)
+        return [snapshot, nil] if snapshot.fetch("documents", {}).key?(document_ids.last)
+
+        [snapshot, ProductContextWizard.call(input: @input, output: @output, snapshot:, document_ids:)]
       end
 
       def resume(plan)
         validate_plan!(plan)
         validate_configuration!(plan)
-        prepare_external(config_from(plan))
+        config = config_from(plan)
+        prepare_external(config)
         @github_state.snapshot
-        @artifact_store.snapshot
+        document_ids = Artifacts::Planner::DOCUMENT_IDS + ProductContext.document_ids(config)
+        @artifact_store.snapshot(document_ids:)
         @output.puts("Resuming #{plan.run_id}")
         execute(plan)
       end
@@ -78,12 +91,10 @@ module ProductFactory
         artifact_store(config)
       end
 
-      def artifact_store(config)
-        @artifact_store ||= Artifacts.build(config:, target_root: @target_root, shell: @shell)
-      end
+      def artifact_store(cfg) = @artifact_store ||= Artifacts.build(config: cfg, target_root: @root, shell: @shell)
 
       def config_from(plan)
-        return Config.load(@target_root) if File.exist?(File.join(@target_root, Config::PATH))
+        return Config.load(@root) if File.exist?(File.join(@root, Config::PATH))
 
         Config.new(YAML.safe_load(seed_config_bytes(plan), aliases: false))
       end
@@ -96,7 +107,7 @@ module ProductFactory
       end
 
       def config_bytes(plan)
-        path = File.join(@target_root, Config::PATH)
+        path = File.join(@root, Config::PATH)
         return File.binread(path) if File.exist?(path)
 
         seed_config_bytes(plan)
@@ -125,14 +136,14 @@ module ProductFactory
         @input.gets&.chomp == "yes"
       end
 
-      def validate_target = TargetValidator.call(root: @target_root)
+      def validate_target = TargetValidator.call(root: @root)
       def provisioning_schema = Schema.call(bytes: @distribution.provisioning_schema_bytes)
-      def run_store = @run_store ||= RunStore.new(root: @target_root, clock: @clock)
-      def plan_validator = @plan_validator ||= PlanValidator.new(target_root: @target_root)
+      def run_store = @run_store ||= RunStore.new(root: @root, clock: @clock)
+      def plan_validator = @plan_validator ||= PlanValidator.new(target_root: @root)
 
       def handlers
         @handlers ||= OperationHandlers.new(
-          target_root: @target_root, github_writer: @github_writer,
+          target_root: @root, github_writer: @github_writer,
           github_state: @github_state, artifact_store: @artifact_store
         )
       end

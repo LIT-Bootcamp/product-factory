@@ -1,14 +1,19 @@
 # frozen_string_literal: true
 
 class FakeArtifactStore
-  attr_reader :revision
+  attr_reader :requested_document_ids, :revision
 
   def initialize
     @revision = "ARTIFACTS-1"
     @documents = {}
   end
 
-  def snapshot = { "revision" => revision, "documents" => @documents }
+  def snapshot(document_ids: ProductFactory::Artifacts::Planner::DOCUMENT_IDS)
+    @requested_document_ids = document_ids
+    { "revision" => revision, "documents" => @documents.slice(*document_ids) }
+  end
+
+  def link(document) = "#{document}.md"
 
   def apply(operation)
     return true if matches?(operation)

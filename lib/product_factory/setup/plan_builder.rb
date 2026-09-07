@@ -5,7 +5,8 @@ module ProductFactory
     class PlanBuilder < Service
       def initialize(
         distribution:, target_root:, clock:, plan_validator:, resolutions:, configuration: nil,
-        github_state: nil, artifact_snapshot: nil, schema: nil, adoptions: [], journal_events: []
+        github_state: nil, artifact_snapshot: nil, schema: nil, adoptions: [], journal_events: [],
+        product_context: nil, actor: nil, version_link: nil
       )
         super()
         @distribution = distribution
@@ -19,6 +20,9 @@ module ProductFactory
         @schema = schema
         @adoptions = adoptions
         @journal_events = journal_events
+        @product_context = product_context
+        @actor = actor
+        @version_link = version_link
       end
 
       def call
@@ -40,10 +44,11 @@ module ProductFactory
 
       def build_plan(installation, sync)
         run_id = RunId.generate(clock: @clock)
+        recorded_at = @clock.call.utc.iso8601
         operations = sync.fetch(:operations)
         operations.unshift(config_operation) unless config_exists?
         conflicts = sync.fetch(:conflicts)
-        add_remote_operations(operations, conflicts, installation, run_id) if full_setup?
+        add_remote_operations(operations, conflicts, installation, run_id, recorded_at) if full_setup?
         append_installation(operations, installation, sync.fetch(:next_hashes), run_id)
 
         Plan.new(
@@ -84,7 +89,7 @@ module ProductFactory
           (full_setup? && configured_adapter != installation.artifact_adapter)
       end
 
-      def add_remote_operations(operations, conflicts, installation, run_id)
+      def add_remote_operations(operations, conflicts, installation, run_id, recorded_at)
         github = GitHub::Planner.call(
           config: @configuration.fetch(:config), schema: @schema, state: @github_state,
           installed_hashes: installation.github_resource_hashes, adoptions: @adoptions
@@ -93,14 +98,25 @@ module ProductFactory
         conflicts.concat(github.fetch(:conflicts))
         artifacts = Artifacts::Planner.call(
           schema: @schema, snapshot: @artifact_snapshot, installed_hashes: installation.artifact_document_hashes,
-          adoptions: @adoptions, run_id:, recorded_at: @clock.call.utc.iso8601,
-          adapter: configured_adapter, operation_summaries: operations.map(&:target), failures: setup_failures
+          adoptions: @adoptions, run_id:, recorded_at:, adapter: configured_adapter,
+          operation_summaries: operations.map(&:target), failures: setup_failures,
+          additional_documents: product_context_documents(run_id, recorded_at)
         )
         operations.concat(artifacts.fetch(:operations))
         conflicts.concat(artifacts.fetch(:conflicts))
       end
 
       def setup_failures = @journal_events.select { |event| event["event"] == "operation_failed" }
+
+      def product_context_documents(run_id, recorded_at)
+        return {} unless @product_context
+
+        ProductContext.call(
+          config: @configuration.fetch(:config), snapshot: @artifact_snapshot, answers: @product_context,
+          actor: @actor, run_id:, recorded_at:, version_link: @version_link
+        )
+      end
+
       def config_bytes = @configuration ? @configuration.fetch(:bytes) : @distribution.config_bytes
       def configuration_fingerprint = full_setup? ? Digest::SHA256.hexdigest(config_bytes) : nil
       def full_setup? = !@configuration.nil?
