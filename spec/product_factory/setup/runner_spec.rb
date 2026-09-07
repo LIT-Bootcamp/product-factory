@@ -240,6 +240,27 @@ RSpec.describe ProductFactory::Setup::Runner do
     end
   end
 
+  it "applies a local refresh that preserves the installed artifact adapter" do
+    distribution = File.realpath(Dir.mktmpdir("product-factory-distribution"))
+    %w[lib templates].each do |directory|
+      FileUtils.cp_r(File.join(FileHelpers::FACTORY_ROOT, directory), distribution)
+    end
+    source = File.join(distribution, "lib/product_factory/version.rb")
+    File.write(source, "#{File.read(source)}\n")
+
+    in_tmp_repo do |target|
+      expect(build_full_setup(target, github: FakeGitHub.new, artifact_store: nil).run([])).to eq(:success)
+      setup = build_setup(target, distribution_root: distribution)
+      plan = setup.plan
+
+      expect(plan.configuration_fingerprint).to be_nil
+      expect(plan.operations.last.attributes.fetch("artifact_adapter")).to eq("repository")
+      expect(setup.apply(plan)).to eq(:success)
+    end
+  ensure
+    FileUtils.remove_entry(distribution) if distribution && File.exist?(distribution)
+  end
+
   it "rejects a plan for another target before asking or writing a journal" do
     in_tmp_repo do |target|
       setup = build_setup(target)
@@ -406,9 +427,9 @@ RSpec.describe ProductFactory::Setup::Runner do
     end
   end
 
-  def build_setup(target)
+  def build_setup(target, distribution_root: FileHelpers::FACTORY_ROOT)
     described_class.new(
-      distribution_root: FileHelpers::FACTORY_ROOT,
+      distribution_root:,
       target_root: target,
       input: StringIO.new("yes\n"),
       output: StringIO.new,

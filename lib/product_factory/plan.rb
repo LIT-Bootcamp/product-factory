@@ -65,8 +65,9 @@ module ProductFactory
 
     def applicable? = conflicts.empty?
 
-    def validate_configuration_binding!
-      return true if configuration_fingerprint || operations.none? { |operation| external?(operation) }
+    def validate_configuration_binding!(installed_adapter:)
+      bound = configuration_fingerprint || operations.none? { |operation| external?(operation, installed_adapter:) }
+      return true if bound
 
       raise ValidationError, "plan has invalid configuration fingerprint"
     end
@@ -86,10 +87,14 @@ module ProductFactory
 
     private
 
-    def external?(operation)
+    def external?(operation, installed_adapter:)
       Operation::GITHUB_KINDS.include?(operation.kind) || operation.kind == Operation::SYNC_ARTIFACTS ||
-        (operation.kind == Operation::WRITE_INSTALLATION && operation.attributes.is_a?(Hash) &&
-          !operation.attributes["artifact_adapter"].nil?)
+        adapter_change?(operation, installed_adapter:)
+    end
+
+    def adapter_change?(operation, installed_adapter:)
+      operation.kind == Operation::WRITE_INSTALLATION && operation.attributes.is_a?(Hash) &&
+        operation.attributes["artifact_adapter"] != installed_adapter
     end
 
     def validate_configuration_fingerprint!(fingerprint)

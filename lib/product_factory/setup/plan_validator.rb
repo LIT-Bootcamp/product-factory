@@ -17,7 +17,7 @@ module ProductFactory
         validate_hashes!(installed_hashes, current_targets: sources.keys)
         @operations = plan.operations
         @factory_targets = sources.keys | installed_hashes.keys
-        validate_operations!(plan)
+        validate_operations!(plan, installed_adapter: installation.artifact_adapter)
       end
 
       def validate_hashes!(hashes, current_targets:)
@@ -30,8 +30,8 @@ module ProductFactory
 
       private
 
-      def validate_operations!(plan)
-        plan.validate_configuration_binding!
+      def validate_operations!(plan, installed_adapter:)
+        plan.validate_configuration_binding!(installed_adapter:)
         validate_types!
         validate_config!
         validate_files!
