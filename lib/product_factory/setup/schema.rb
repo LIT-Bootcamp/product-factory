@@ -7,8 +7,7 @@ module ProductFactory
       ARTIFACT_DOCUMENTS = %w[
         index setup-log ideas/index epics/index tickets/index research/index factory-runs/index
       ].freeze
-      OPEN_BRACE = "{"
-      ARTIFACT_MARKER = "<!-- product-factory:v1:artifact:%#{OPEN_BRACE}document} -->".freeze
+      ARTIFACT_MARKER = "<!-- product-factory:v1:artifact:document -->"
       FIELD_TYPES = %w[date number single_select text].freeze
 
       def initialize(bytes:)
@@ -40,9 +39,9 @@ module ProductFactory
           data.fetch("fields").values.all? { |field| FIELD_TYPES.include?(field["type"]) },
           data.fetch("views").keys == %w[Ideas Epics Tickets],
           data.dig("artifacts", "documents") == ARTIFACT_DOCUMENTS,
-          data.dig("markers", "artifact") == ARTIFACT_MARKER
+          format(data.dig("markers", "artifact"), document: "document") == ARTIFACT_MARKER
         ].all?
-      rescue KeyError, NoMethodError
+      rescue KeyError, NoMethodError, ArgumentError, TypeError
         false
       end
     end

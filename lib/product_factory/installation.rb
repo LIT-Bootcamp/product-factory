@@ -7,15 +7,18 @@ module ProductFactory
     "artifact_document_hashes" => {}, "artifact_revision" => nil, "factory_file_hashes" => {},
     "last_successful_setup_run" => nil, "pending_operations" => []
   }.freeze
-  STATE_ADAPTERS = [nil, "repository", "wiki"].freeze
+  private_constant :INSTALLATION_DEFAULTS
 
   class Installation
     PATH = ".product-factory/installation.yml"
+    SUPPORTED_ADAPTERS = [nil, "repository", "wiki"].freeze
     LEGACY_DOCUMENTS = %w[
       Setup-Log.md setup-log Ideas.md ideas/index Epics.md epics/index
       Tickets.md tickets/index Research.md research/index Factory-Runs.md factory-runs/index
     ].each_slice(2).to_h.freeze
-    LEGACY_PAGES = LEGACY_DOCUMENTS.keys.freeze
+
+    private_constant :SUPPORTED_ADAPTERS, :LEGACY_DOCUMENTS
+
     def self.load(root)
       path = File.join(root, PATH)
       return empty unless File.exist?(path)
@@ -68,7 +71,8 @@ module ProductFactory
       state["artifact_adapter"] ||= "wiki"
       state["artifact_revision"] ||= head
       if state.fetch("artifact_document_hashes", {}) == {}
-        state["artifact_document_hashes"] = hashes.to_h.slice(*LEGACY_PAGES).transform_keys { LEGACY_DOCUMENTS[it] }
+        state["artifact_document_hashes"] = hashes.to_h.slice(*LEGACY_DOCUMENTS.keys)
+                                                  .transform_keys { LEGACY_DOCUMENTS.fetch(it) }
       end
       state
     end
@@ -81,7 +85,7 @@ module ProductFactory
     end
 
     def validate_artifacts!
-      raise ValidationError, "artifact_adapter is unsupported" unless STATE_ADAPTERS.include?(artifact_adapter)
+      raise ValidationError, "artifact_adapter is unsupported" unless SUPPORTED_ADAPTERS.include?(artifact_adapter)
 
       revision = @data["artifact_revision"]
       raise ValidationError, "artifact_revision must be a string or null" unless revision.nil? || revision.is_a?(String)
@@ -132,17 +136,21 @@ module ProductFactory
     end
 
     def immutable_copy(value)
-      return value.to_h { |key, item| [immutable_copy(key), immutable_copy(item)] }.freeze if value.is_a?(Hash)
-      return value.map { |item| immutable_copy(item) }.freeze if value.is_a?(Array)
-
-      value.is_a?(String) ? value.dup.freeze : value
+      case value
+      when Hash then value.to_h { |key, item| [immutable_copy(key), immutable_copy(item)] }.freeze
+      when Array then value.map { |item| immutable_copy(item) }.freeze
+      when String then value.dup.freeze
+      else value
+      end
     end
 
     def mutable_copy(value)
-      return value.to_h { |key, item| [mutable_copy(key), mutable_copy(item)] } if value.is_a?(Hash)
-      return value.map { |item| mutable_copy(item) } if value.is_a?(Array)
-
-      value.is_a?(String) ? value.dup : value
+      case value
+      when Hash then value.to_h { |key, item| [mutable_copy(key), mutable_copy(item)] }
+      when Array then value.map { |item| mutable_copy(item) }
+      when String then value.dup
+      else value
+      end
     end
   end
 end

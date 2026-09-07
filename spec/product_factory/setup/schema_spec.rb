@@ -6,8 +6,6 @@ RSpec.describe ProductFactory::Setup::Schema do
   end
 
   it "loads the exact private v1 resource model" do
-    open_brace = "{"
-
     expect(schema.dig("project", "public")).to be(false)
     expect(schema.fetch("issue_types").keys).to eq(%w[Idea Epic Ticket])
     expect(schema.dig("fields", "Priority", "options").map { |option| option.fetch("name") })
@@ -16,8 +14,8 @@ RSpec.describe ProductFactory::Setup::Schema do
     expect(schema.dig("artifacts", "documents")).to eq(
       %w[index setup-log ideas/index epics/index tickets/index research/index factory-runs/index]
     )
-    expect(schema.dig("markers", "artifact"))
-      .to eq("<!-- product-factory:v1:artifact:%#{open_brace}document} -->")
+    expect(format(schema.dig("markers", "artifact"), document: "ideas/index"))
+      .to eq("<!-- product-factory:v1:artifact:ideas/index -->")
     expect(schema.fetch("markers").keys).to contain_exactly("issue_type", "project", "artifact")
     expect(schema).not_to have_key("wiki")
     expect(schema).to be_frozen

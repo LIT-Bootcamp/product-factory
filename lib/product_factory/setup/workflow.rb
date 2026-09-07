@@ -85,10 +85,7 @@ module ProductFactory
       def config_from(plan)
         return Config.load(@target_root) if File.exist?(File.join(@target_root, Config::PATH))
 
-        seed = plan.operations.find { |operation| operation.kind == Operation::SEED_CONFIG }
-        raise ValidationError, "stored plan has no configuration" unless seed
-
-        Config.new(YAML.safe_load(seed.attributes.fetch("content_base64").unpack1("m0"), aliases: false))
+        Config.new(YAML.safe_load(seed_config_bytes(plan), aliases: false))
       end
 
       def validate_configuration!(plan)
@@ -102,6 +99,10 @@ module ProductFactory
         path = File.join(@target_root, Config::PATH)
         return File.binread(path) if File.exist?(path)
 
+        seed_config_bytes(plan)
+      end
+
+      def seed_config_bytes(plan)
         seed = plan.operations.find { |operation| operation.kind == Operation::SEED_CONFIG }
         raise ValidationError, "stored plan has no configuration" unless seed
 
