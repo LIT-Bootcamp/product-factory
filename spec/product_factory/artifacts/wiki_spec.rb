@@ -44,6 +44,21 @@ RSpec.describe ProductFactory::Artifacts::Wiki do
       end
   end
 
+  it "rejects a mapped page symlink without reading its target" do
+    secret = File.join(root, "runner-secret")
+    File.binwrite(secret, "do not read\n")
+    ideas = File.join(root, "source/Ideas.md")
+    File.unlink(ideas)
+    File.symlink(secret, ideas)
+    git!("add", "--", "Ideas.md", chdir: File.join(root, "source"))
+    git!("-c", "user.name=Human", "-c", "user.email=human@example.com", "commit", "-qm", "Link Ideas",
+         chdir: File.join(root, "source"))
+    git!("push", "-q", "origin", "HEAD", chdir: File.join(root, "source"))
+
+    expect { adapter.snapshot }
+      .to raise_error(ProductFactory::ValidationError, "artifact page is a symlink: Ideas.md")
+  end
+
   it "commits logical documents once and preserves human-owned Wiki pages byte-for-byte" do
     ideas = "<!-- product-factory:v1:artifact:ideas/index -->\n# Current Ideas\n"
 

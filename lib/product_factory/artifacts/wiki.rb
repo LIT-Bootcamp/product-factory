@@ -2,6 +2,7 @@
 
 module ProductFactory
   module Artifacts
+    # rubocop:disable-next Metrics/ClassLength
     class Wiki
       PAGES = {
         "index" => "Product-Factory.md",
@@ -66,18 +67,36 @@ module ProductFactory
       end
 
       def read_checkout(checkout)
-        home = File.join(checkout, "Home.md")
-        raise missing_home unless File.file?(home)
+        raise missing_home unless read_page(checkout, "Home.md")
 
         revision = run!("git", "rev-parse", "HEAD", chdir: checkout).strip
         documents = PAGES.filter_map do |document, page|
-          path = File.join(checkout, page)
-          [document, File.binread(path)] if File.file?(path)
+          content = read_page(checkout, page)
+          [document, content] if content
         end.to_h
         legacy_owned_documents = documents.keys.select do |document|
           documents.fetch(document).include?(legacy_marker(PAGES.fetch(document)))
         end
         immutable("revision" => revision, "documents" => documents, "legacy_owned_documents" => legacy_owned_documents)
+      end
+
+      def read_page(checkout, page)
+        path = File.join(checkout, page)
+        stat = File.lstat(path)
+        raise ValidationError, "artifact page is a symlink: #{page}" if stat.symlink?
+        raise ValidationError, "artifact page is not a regular file: #{page}" unless stat.file?
+
+        File.open(path, File::RDONLY | File::NOFOLLOW | File::NONBLOCK) do |file|
+          raise ValidationError, "artifact page is not a regular file: #{page}" unless file.stat.file?
+
+          file.binmode.read
+        end
+      rescue Errno::ENOENT
+        nil
+      rescue Errno::ELOOP
+        raise ValidationError, "artifact page is a symlink: #{page}"
+      rescue Errno::EACCES, Errno::EAGAIN, Errno::EISDIR, Errno::ENODEV, Errno::ENOTDIR, Errno::ENXIO, Errno::EPERM
+        raise ValidationError, "cannot read artifact page: #{page}"
       end
 
       def write_documents(checkout, documents)
