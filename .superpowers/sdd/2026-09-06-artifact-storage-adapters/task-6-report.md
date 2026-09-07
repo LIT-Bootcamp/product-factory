@@ -43,6 +43,28 @@ The integration examples prove:
 - an explicit repository switch creates all seven repository documents without changing Wiki bytes or `HEAD`, persists `repository`, and then no-ops;
 - an adapter-only installation change persists when all seven destination documents already match and no artifact sync is planned.
 
+## Live-discovered field mutation regression
+
+GitHub rejected the field update because `ProjectV2FieldConfiguration` is a union, so `id` cannot be selected directly. Schema introspection reported ProjectV2 Field, Iteration, MultiSelect, and SingleSelect union members. The mutation response is ignored, so selecting the union meta-field `__typename` avoids hard-coded fragments.
+
+The existing Status-field writer example was strengthened before the mutation changed:
+
+```text
+mise exec -- bundle exec rspec spec/product_factory/github/writer_spec.rb
+
+15 examples, 1 failure (seed 62315)
+expected the query to include `projectV2Field { __typename }`;
+received `projectV2Field { id }`
+```
+
+Changing only `UPDATE_FIELD` produced GREEN:
+
+```text
+mise exec -- bundle exec rspec spec/product_factory/github/writer_spec.rb
+
+15 examples, 0 failures (seed 62516)
+```
+
 ## Live gate
 
 Exact command:
@@ -54,23 +76,41 @@ PRODUCT_FACTORY_LIVE_GITHUB=LIT-Bootcamp/product-factory-sandbox \
 
 The sandboxed attempt failed at clone DNS resolution, so the command was rerun with approved network access. Clone and the read-only default-config preflight succeeded; the sandbox has no checked-in config, so repository contents do not force the legacy Wiki adapter.
 
-The live gate remains externally blocked:
+The missing Project scope was authorized and the exact command was rerun. It passed clone, configuration, Project snapshot, preview, and confirmation, then stopped on the first missing organization Issue Type before any GitHub mutation:
 
 ```text
-1 example, 1 failure (seed 59697)
+1 example, 1 failure (seed 25180)
 
-Your token has not been granted the required scopes to execute this query.
-The 'id' field requires one of the following scopes: ['read:project'],
-but your token has only been granted: ['gist', 'read:org', 'repo', 'workflow'].
+GitHub request failed (exit 1): gh: Not Found (HTTP 404)
+This API operation needs the "admin:org" scope.
 ```
 
-Both setup calls stopped during the GitHub Project snapshot, before preview, confirmation, or apply. The live spec checks local and remote application `HEAD` before checking setup status; both assertions passed across the failed calls. No commit or push command exists in the spec or was run. Visibility, generated config/artifacts, installation state, and the successful second no-op remain unproved until the token has `read:project` and the same command is rerun.
+Only the temporary checkout received local setup files before the external request failed; the temporary directory was removed by the spec. No organization resource, application commit, or remote branch changed, and no push command exists in the spec. Successful live convergence/no-op remains unproved until `admin:org` is explicitly authorized and the same command is rerun.
+
+The organization scope was then explicitly authorized. A later live run incrementally reconciled the sandbox until GitHub rejected the invalid field-update selection fixed above.
+
+After the fix, the sandboxed exact command first failed at clone DNS resolution (`1 example, 1 failure`, seed `36116`). The same command was rerun with approved network access. It completed 101 operations, including the remaining Project fields and the Ideas view, then recorded:
+
+```text
+ProductFactory::ValidationError: verification failed for github:view:Epics
+responsible_component: product_factory
+recovery_action: rerun product-factory setup
+```
+
+Final live result:
+
+```text
+1 example, 1 failure (seed 34587)
+Finished in 12 minutes 58 seconds
+```
+
+The local and remote application `HEAD` preservation assertions passed before the failed status assertion. The sandbox remains incrementally reconciled; no resources were deleted or reset. Per the live-failure stop rule, the Epics-view failure was recorded without attempting a second fix.
 
 ## Final local verification
 
 ```text
 mise exec -- bundle exec rspec
-208 examples, 0 failures (seed 17118)
+208 examples, 0 failures (seed 41659)
 
 mise exec -- bundle exec rubocop
 90 files inspected, no offenses detected
@@ -92,4 +132,4 @@ Bundler's generated untracked `Gemfile.lock` was removed and is not part of the 
 
 ## Concerns
 
-- External only: the current GitHub token lacks `read:project`, so the required successful live convergence/no-op proof cannot run to completion.
+- Live convergence/no-op remains unproved: the first setup now stops while verifying `github:view:Epics`. This is a separate failure and was intentionally not diagnosed or changed in this fix.

@@ -142,7 +142,7 @@ RSpec.describe ProductFactory::GitHub::Writer do
 
     expect(writer.apply(operation)).to be(true)
     expect(client).to have_received(:graphql).with(
-      a_string_including("updateProjectV2Field"),
+      a_string_including("updateProjectV2Field", "projectV2Field { __typename }"),
       "input" => {
         "fieldId" => "F_1", "name" => "Status",
         "singleSelectOptions" => [{ "name" => "Created", "color" => "GRAY", "description" => "New" }]

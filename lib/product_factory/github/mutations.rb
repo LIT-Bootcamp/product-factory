@@ -13,7 +13,7 @@ module ProductFactory
         mutation($input:LinkProjectV2ToRepositoryInput!) { linkProjectV2ToRepository(input:$input) { repository { id } } }
       GRAPHQL
       UPDATE_FIELD = <<~GRAPHQL
-        mutation($input:UpdateProjectV2FieldInput!) { updateProjectV2Field(input:$input) { projectV2Field { id } } }
+        mutation($input:UpdateProjectV2FieldInput!) { updateProjectV2Field(input:$input) { projectV2Field { __typename } } }
       GRAPHQL
       UPDATE_VIEW = <<~GRAPHQL
         mutation($input:UpdateProjectV2ViewInput!) { updateProjectV2View(input:$input) { projectV2View { id } } }
