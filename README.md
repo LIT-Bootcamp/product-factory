@@ -32,6 +32,8 @@ bin/product-factory test
 
 Setup performs a mutation-free preflight, prints one complete plan, and asks for one `yes`. An interrupted confirmed run resumes automatically. A repeated converged run reports `Product Factory is up to date`.
 
+Initial setup asks the eight Product Context prompts: mission, target users, primary user problem, desired outcome, markets and languages, competitor seeds, constraints, and non-goals. The confirmed plan publishes a mutable landing document at `product/context.md` and immutable first version at `product/context/v1.md`.
+
 New installations store canonical artifacts in the application repository by default:
 
 ```yaml
@@ -53,7 +55,9 @@ product/
   factory-runs/README.md
 ```
 
-Setup leaves `product/**` uncommitted. The normal delivery flow owns its review, commit, and push.
+Setup leaves `product/**` uncommitted. Users review and commit repository-adapter output through their normal Git workflow; Product Factory does not commit, branch, or push.
+
+Product Context is the completed portion of Slice 3. Product Inventory, Ideation, Idea approval, and Idea revision are next work.
 
 GitHub Wiki remains available as an optional adapter:
 

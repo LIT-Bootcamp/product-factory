@@ -11,7 +11,7 @@ RSpec.describe ProductFactory::CLI do
   after { FileUtils.remove_entry(root) }
 
   it "defaults to repository artifacts through two real CLI setup runs" do
-    head_before = git!("rev-parse", "HEAD", chdir: target)
+    head_before_setup = git!("rev-parse", "HEAD", chdir: target)
     remote_before = git!("remote", "get-url", "origin", chdir: target)
     first_output = StringIO.new
     first_error = StringIO.new
@@ -25,11 +25,14 @@ RSpec.describe ProductFactory::CLI do
     expect(second_status).to eq(0), second_error.string
     expect_repository_documents
     expect(File.binread(File.join(target, "product/context.md"))).to include("Current version: [v1](context/v1.md)")
-    expect(File.binread(File.join(target, "product/context/v1.md"))).to include("Initial Product Context")
+    expect(File.read(File.join(target, "product/context/v1.md"))).to include(
+      "# Product Context", "| Version | 1 |", "## Mission"
+    )
     expect(ProductFactory::Config.load(target).artifacts).to eq("adapter" => "repository", "root" => "product")
     expect(ProductFactory::Installation.load(target).artifact_adapter).to eq("repository")
     expect(second_output.string).to include("Product Factory is up to date")
-    expect(git!("rev-parse", "HEAD", chdir: target)).to eq(head_before)
+    expect(second_output.string).not_to include("Mission:", "SYNC artifacts:documents")
+    expect(git!("rev-parse", "HEAD", chdir: target)).to eq(head_before_setup)
     expect(git!("remote", "get-url", "origin", chdir: target)).to eq(remote_before)
   end
 

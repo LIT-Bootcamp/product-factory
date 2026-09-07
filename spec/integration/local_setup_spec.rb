@@ -97,7 +97,7 @@ RSpec.describe ProductFactory::Setup::Runner do
       )
 
       expect(status).to be_success, error
-      expect(output).to include("2 examples, 0 failures")
+      expect(output).to include("3 examples, 0 failures")
     end
   end
 
