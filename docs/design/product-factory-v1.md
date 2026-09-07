@@ -18,7 +18,7 @@ Version 1 ends when technical tickets are ready for a future backlog process. Ba
 
 ## 2. Design Principles
 
-1. Wiki artifacts are the canonical product record.
+1. The configured artifact store is the canonical product record.
 2. GitHub Issues and Project fields are synchronized projections of that record.
 3. Every published artifact has an immutable semantic version.
 4. Every phase can run without requiring another phase to remain active.
@@ -38,9 +38,7 @@ There are two normal repositories:
 1. `LIT-Bootcamp/product-factory` is the public, versioned distribution source.
 2. The application repository contains the installed runtime, configuration, skills, and agent profiles.
 
-The application Wiki is an attached Git repository managed by GitHub. It is not treated as a third product repository in the user interface.
-
-Application business artifacts do not live in the application source tree.
+Canonical Markdown artifacts use the configured storage adapter. New installations use the application repository under `product/`; GitHub Wiki remains an optional attached Git repository.
 
 ### 3.2 Release model
 
@@ -84,9 +82,17 @@ Setup manages the following files in the application repository:
   technical-lead.toml
   manual-qa.toml
 bin/product-factory
+product/
+  README.md
+  setup-log.md
+  ideas/README.md
+  epics/README.md
+  tickets/README.md
+  research/README.md
+  factory-runs/README.md
 ```
 
-Setup never creates a branch, commit, push, or pull request. It modifies local files and authorized GitHub resources. The user reviews and commits local changes through their normal Git workflow.
+The `product/` paths above are the default repository-adapter mapping; a configured safe relative root replaces `product`. Setup never creates a branch, commit, push, or pull request. It modifies local files and authorized GitHub resources. The user reviews and commits local changes through their normal Git workflow.
 
 ### 3.4 Runtime interface
 
@@ -132,7 +138,7 @@ Setup asks for:
 - optional competitor seeds;
 - optional constraints and non-goals.
 
-It publishes an immutable `Product-Context-vNNN` page and updates the `Product-Context` landing page.
+It publishes an immutable Product Context version and updates the configured `product.context_document` landing document.
 
 ### 4.3 GitHub authentication and permissions
 
@@ -171,9 +177,13 @@ schema_version: 1
 
 product:
   name: Bootcamper
-  context_page: Product-Context
-  inventory_page: Product-Inventory
+  context_document: context
+  inventory_document: inventory
   max_active_ideas: 10
+
+artifacts:
+  adapter: repository
+  root: product
 
 github:
   organization: LIT-Bootcamp
@@ -222,6 +232,8 @@ knowledge:
     - .github/workflows
 ```
 
+`artifacts.adapter: repository` is the new-installation default. Setting `artifacts.adapter: wiki` selects the optional Wiki adapter and does not require `artifacts.root`. A version 1 configuration without `artifacts` retains Wiki storage for backward compatibility.
+
 Agent model and reasoning effort are configured exactly per role. Setup suggests currently available high-quality defaults but does not silently rewrite explicit choices.
 
 Product Factory owns `.product-factory/installation.yml`. It records:
@@ -230,6 +242,7 @@ Product Factory owns `.product-factory/installation.yml`. It records:
 - installation time and actor;
 - GitHub resource IDs;
 - hashes of files installed by Product Factory;
+- selected artifact adapter, document hashes, and storage revision;
 - last successful setup run;
 - pending resumable operations.
 
@@ -273,12 +286,12 @@ Numbers are shared across issue types, so gaps are expected and valid.
 
 ### 6.3 Canonical and projected state
 
-Wiki content and logs are canonical. Issues and Project fields are projections.
+Content and logs in the configured artifact store are canonical. Issues and Project fields are projections.
 
-Because GitHub Issue, Wiki Git, and Project mutations cannot be transactional, publication is recoverable:
+Because GitHub Issue, artifact, and Project mutations cannot be transactional, future product-phase publication is recoverable:
 
 1. The Issue is created to reserve its number and stable ID.
-2. The immutable canonical Wiki version is committed.
+2. The immutable canonical artifact version is written through the configured adapter.
 3. The Issue body and Project fields are synchronized.
 4. An incomplete run resumes missing projections without creating a second entity.
 
@@ -288,10 +301,12 @@ Issue bodies are useful mirrors, not link-only placeholders. They include:
 - summary and observable outcome;
 - scenario or technical detail appropriate to the type;
 - parent and dependencies;
-- exact immutable Wiki link;
+- exact immutable artifact link;
 - hidden Product Factory identity marker.
 
-Factory-managed Wiki pages and Project fields must not be edited manually. Detected drift is either restored from canonical state or escalated when restoration would overwrite an unrecognized change.
+Exact immutable links are a required interface for each product phase; setup itself needs only storage-neutral document synchronization. The repository adapter writes the current checkout and leaves Git commits, branches, and pushes to the normal delivery flow.
+
+Factory-managed artifacts and Project fields must not be edited manually. Detected drift is either restored from canonical state or escalated when restoration would overwrite an unrecognized change.
 
 ## 7. Project Fields
 
@@ -384,49 +399,35 @@ Active Ideas are in Created, Human approved, Analyzing, Analyzed, Blocked, or Ne
 
 `max_active_ideas` defaults to 10. If eight Ideas are active, Ideation may create at most two. Updating an existing Created Idea does not consume another slot. At capacity, Ideation researches and updates eligible Created Ideas or returns a no-op. Blocked and Needs human Ideas still consume capacity.
 
-## 9. Wiki Information Architecture
+## 9. Artifact Information Architecture
 
-The factory manages these page families:
+The factory addresses canonical content by logical document ID. Adapters alone translate those IDs into physical paths or pages. Setup owns these documents:
 
-```text
-Home
-_Sidebar
-Product-Context
-Product-Context-v001
-Product-Inventory
-Product-Inventory-v001
+| Document ID | Repository adapter default | Wiki adapter |
+|---|---|---|
+| `index` | `product/README.md` | `Product-Factory.md` |
+| `setup-log` | `product/setup-log.md` | `Setup-Log.md` |
+| `ideas/index` | `product/ideas/README.md` | `Ideas.md` |
+| `epics/index` | `product/epics/README.md` | `Epics.md` |
+| `tickets/index` | `product/tickets/README.md` | `Tickets.md` |
+| `research/index` | `product/research/README.md` | `Research.md` |
+| `factory-runs/index` | `product/factory-runs/README.md` | `Factory-Runs.md` |
 
-Ideas
-IDEA-141
-IDEA-141-v001
-IDEA-141-Log
-IDEA-141-Analysis-RUN-...
+The configured repository root replaces `product`. Future product phases extend the same logical hierarchy with current documents, immutable entity versions, append-only logs, analysis records, research records, and run records. For example, `ideas/IDEA-141/v1` identifies a version independently of its physical storage.
 
-Epics
-EPIC-142
-EPIC-142-v001
-EPIC-142-Log
-EPIC-142-Tech-Analysis-v001
-EPIC-142-Tech-Communication-RUN-...
+Landing documents are mutable projections of the current version. Entity versions are immutable. Entity logs are append-only. A run document becomes immutable when the run finishes. Indexes are generated deterministically.
 
-Tickets
-TICKET-143
-TICKET-143-v001
-TICKET-143-Log
+Communication uses one document per analysis run, with numbered question-and-answer rounds, decisions, resolved and open items, assumptions, and outcome. It does not create a document per message.
 
-Research
-RESEARCH-competitor-slug-date
+### 9.1 Repository adapter
 
-Factory-Runs
-RUN-...
-Setup-Log
-```
+The repository adapter is the default. It writes Markdown atomically inside the configured root but never creates a branch, commit, push, pull request, or Git configuration change. The delivery workflow owns Git publication and history.
 
-Landing pages are mutable projections of the current version. `vNNN` pages are immutable. Entity logs are append-only. A run page becomes immutable when the run finishes. Index pages and `_Sidebar` are generated deterministically.
+### 9.2 Wiki adapter
 
-Communication uses one page per analysis run, with numbered question-and-answer rounds, decisions, resolved and open items, assumptions, and outcome. It does not create a page per message.
+The Wiki adapter is optional. It maps the same logical IDs to Wiki pages and requires a manually initialized `Home` page, which Product Factory never edits. It clones normally, compares the expected Git head before publication, commits, and pushes without force-pushing or rewriting history. A competing update stops the write for a fresh semantic plan.
 
-Wiki Git history is useful audit evidence but does not replace explicit semantic version pages.
+Wiki Git history is useful audit evidence but does not replace explicit semantic versions.
 
 Every Gherkin scenario has its own Markdown heading and fenced Gherkin block, allowing a Ticket to link to an exact anchor in an immutable Epic version. Scenario identity is unique within an Epic, for example `EPIC-142/SCENARIO-002`.
 
@@ -522,7 +523,7 @@ A Ticket version contains:
 1. Metadata, parent Epic, priority, and run.
 2. Business Context.
 3. Observable Outcome.
-4. Scenario Traceability table with exact clickable immutable Wiki anchors.
+4. Scenario Traceability table with exact clickable immutable artifact anchors.
 5. Current Behavior.
 6. Required Behavior, including success, failure, and boundary behavior.
 7. Acceptance Criteria.
@@ -553,7 +554,7 @@ Ideation cannot run until a human-approved Product Inventory exists.
 2. Manual QA starts the configured application and verifies observable flows in a browser for student, mentor, and admin roles.
 3. The Business Analyst combines documentary and observed evidence.
 4. A human reviews the inventory.
-5. The runtime publishes `Product-Inventory-vNNN` and updates the landing page.
+5. The runtime publishes an immutable Product Inventory version and updates its landing document.
 
 Each capability records:
 
@@ -597,7 +598,7 @@ Agent profiles are generic and factory-managed. Project-specific context is asse
 4. Invoke one Ideator with the bounded context.
 5. Research competitors and user needs, compare candidates with existing Created Ideas, and rank them.
 6. Validate all proposed artifacts.
-7. Create Issues to reserve stable IDs, publish Wiki versions, and synchronize the Project.
+7. Create Issues to reserve stable IDs, publish artifact versions, and synchronize the Project.
 8. Release the lease and finish with Success, No-op, Needs human, or Failed.
 
 Ideation asks no human questions. It may automatically modify only Created Ideas. For Human approved, Analyzing, or Analyzed Ideas it may log a proposed research change, but scope or priority changes require `$idea-revise`. Reaching capacity is a valid no-op.
@@ -676,9 +677,9 @@ A claim records:
 - heartbeat time;
 - expiry time.
 
-Claims are renewable and expire after 60 minutes by default. Wiki publication uses Git compare-and-swap against the expected head. A competing update causes a semantic retry; it never force-pushes.
+Claims are renewable and expire after 60 minutes by default. Artifact publication verifies the expected adapter revision before writing. A competing update causes a fresh semantic plan.
 
-An expired run is marked Failed with attribution before a later invocation recovers its work. Recovery reuses reserved Issues, published immutable pages, and completed operations.
+An expired run is marked Failed with attribution before a later invocation recovers its work. Recovery reuses reserved Issues, published immutable versions, and completed operations.
 
 Run lifecycle:
 
@@ -686,7 +687,7 @@ Run lifecycle:
 Planned -> Running -> Success | No-op | Needs human | Failed
 ```
 
-Each immutable run page records:
+Each immutable run document records:
 
 - phase;
 - source entity and version;
@@ -715,7 +716,7 @@ Every failure record must include:
 - `recovery_action`;
 - `process_change_required`.
 
-The Project stores the latest failure owner and time. The immutable run page stores the full record. Descriptions such as “mistakenly remained ready” without a responsible role and root cause are invalid.
+The Project stores the latest failure owner and time. The immutable run document stores the full record. Descriptions such as “mistakenly remained ready” without a responsible role and root cause are invalid.
 
 Configuration, permission, runtime, agent, validation, external service, and human-decision failures are attributed to the component or actor that violated the documented rule, not automatically to the agent visible at the end of the workflow.
 
@@ -756,7 +757,7 @@ The runtime:
 
 - allowlists configured organization and repository IDs;
 - verifies factory markers and operation IDs before mutation;
-- never force-pushes or rewrites Wiki history;
+- the Wiki adapter never force-pushes or rewrites Wiki history;
 - never automatically deletes production resources;
 - supports deletion only for marked sandbox resources after an exact preview and separate confirmation;
 - passes command arguments without shell interpolation;
@@ -774,7 +775,7 @@ Every Product Factory pull request runs:
 - schema and template contract tests;
 - state-machine tests;
 - claim and concurrency tests;
-- Wiki semantic merge tests;
+- repository and Wiki artifact-adapter tests;
 - GitHub operation-plan tests;
 - setup and refresh migration tests;
 - interrupted-operation resume tests;
@@ -783,7 +784,7 @@ Every Product Factory pull request runs:
 
 Skills use RED/GREEN pressure tests that first demonstrate a contract failure and then verify the corrected instruction.
 
-Release candidates run against the dedicated private repository `LIT-Bootcamp/product-factory-sandbox`. An organization owner creates the repository and its first Wiki `Home` page once:
+Release candidates run against the dedicated private repository `LIT-Bootcamp/product-factory-sandbox`. An organization owner creates the repository once; the sandbox uses repository artifacts:
 
 1. empty Rails project setup;
 2. setup no-op;
@@ -811,7 +812,7 @@ Version 1 includes:
 - Ideation, approval, and revision;
 - business analysis into Epics and Gherkin;
 - technical analysis into bounded Tickets;
-- Wiki, Issue, and Project synchronization;
+- artifact, Issue, and Project synchronization;
 - audit, claims, recovery, validation, and release testing.
 
 Version 1 deliberately excludes:
