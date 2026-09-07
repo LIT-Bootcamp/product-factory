@@ -17,7 +17,7 @@ module ProductFactory
         validate_hashes!(installed_hashes, current_targets: sources.keys)
         @operations = plan.operations
         @factory_targets = sources.keys | installed_hashes.keys
-        validate_operations!
+        validate_operations!(plan)
       end
 
       def validate_hashes!(hashes, current_targets:)
@@ -30,7 +30,8 @@ module ProductFactory
 
       private
 
-      def validate_operations!
+      def validate_operations!(plan)
+        plan.validate_configuration_binding!
         validate_types!
         validate_config!
         validate_files!
@@ -123,9 +124,9 @@ module ProductFactory
 
       def validate_order!
         return if @operations.empty?
-        unless installation_operations.one? && @operations.last == installation_operations.first
-          raise ValidationError, "plan must end with installation state"
-        end
+
+        valid_installation = installation_operations.one? && @operations.last == installation_operations.first
+        raise ValidationError, "plan must end with installation state" unless valid_installation
 
         raise ValidationError, "plan operation order is invalid" unless @operations == ordered_operations
       end

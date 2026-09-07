@@ -56,6 +56,8 @@ module ProductFactory
       end
 
       def resume(plan)
+        validate_plan!(plan)
+        validate_configuration!(plan)
         prepare_external(config_from(plan))
         @github_state.snapshot
         @artifact_store.snapshot
@@ -65,6 +67,7 @@ module ProductFactory
 
       def execute(plan)
         validate_plan!(plan)
+        validate_configuration!(plan)
         handlers.validate_preconditions!(plan)
         Executor.new(journal: run_store.journal, handlers: handlers.to_h).apply(plan)
       end
@@ -86,6 +89,23 @@ module ProductFactory
         raise ValidationError, "stored plan has no configuration" unless seed
 
         Config.new(YAML.safe_load(seed.attributes.fetch("content_base64").unpack1("m0"), aliases: false))
+      end
+
+      def validate_configuration!(plan)
+        return unless plan.configuration_fingerprint
+        return if Digest::SHA256.hexdigest(config_bytes(plan)) == plan.configuration_fingerprint
+
+        raise ConflictError, "configuration changed after planning"
+      end
+
+      def config_bytes(plan)
+        path = File.join(@target_root, Config::PATH)
+        return File.binread(path) if File.exist?(path)
+
+        seed = plan.operations.find { |operation| operation.kind == Operation::SEED_CONFIG }
+        raise ValidationError, "stored plan has no configuration" unless seed
+
+        seed.attributes.fetch("content_base64").unpack1("m0")
       end
 
       def validate_plan!(plan)

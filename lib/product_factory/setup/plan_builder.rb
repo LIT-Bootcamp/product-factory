@@ -51,7 +51,8 @@ module ProductFactory
           mode: installed? ? "refresh" : "setup",
           operations:,
           conflicts:,
-          target_root: @target_root
+          target_root: @target_root,
+          configuration_fingerprint: configuration_fingerprint
         )
       end
 
@@ -101,6 +102,7 @@ module ProductFactory
 
       def setup_failures = @journal_events.select { |event| event["event"] == "operation_failed" }
       def config_bytes = @configuration ? @configuration.fetch(:bytes) : @distribution.config_bytes
+      def configuration_fingerprint = full_setup? ? Digest::SHA256.hexdigest(config_bytes) : nil
       def full_setup? = !@configuration.nil?
       def configured_adapter = @configuration.fetch(:config).artifacts.fetch("adapter")
 

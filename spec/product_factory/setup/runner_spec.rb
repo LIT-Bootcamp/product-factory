@@ -86,12 +86,75 @@ RSpec.describe ProductFactory::Setup::Runner do
     end
   end
 
+  it "rejects a resumed repository setup when configuration changed after planning" do
+    in_tmp_repo do |target|
+      github = FakeGitHub.new(fail_once_after: ProductFactory::Operation::ENSURE_PROJECT)
+      first = build_full_setup(target, github:, artifact_store: nil)
+
+      expect { first.run([]) }.to raise_error(ProductFactory::ExternalFailure, "simulated interruption")
+
+      config_path = File.join(target, ProductFactory::Config::PATH)
+      config = YAML.safe_load_file(config_path)
+      config.fetch("artifacts")["root"] = "redirected"
+      File.write(config_path, YAML.dump(config))
+      files_before_resume = Dir.glob(File.join(target, "**/*"), File::FNM_DOTMATCH).sort
+
+      resumed = build_full_setup(target, github:, artifact_store: nil, input: StringIO.new)
+
+      expect { resumed.run([]) }
+        .to raise_error(ProductFactory::ConflictError, "configuration changed after planning")
+      expect(Dir.glob(File.join(target, "**/*"), File::FNM_DOTMATCH).sort).to eq(files_before_resume)
+      expect(File).not_to exist(File.join(target, "product", "README.md"))
+      expect(File).not_to exist(File.join(target, "redirected", "README.md"))
+    end
+  end
+
+  it "rejects configuration changes made after confirmation before executing a new plan" do
+    in_tmp_repo do |target|
+      github = FakeGitHub.new
+      expect(build_full_setup(target, github:, artifact_store: nil).run([])).to eq(:success)
+      artifact_path = File.join(target, "product", "README.md")
+      File.delete(artifact_path)
+      input = StringIO.new("yes\n")
+      allow(input).to receive(:gets).and_wrap_original do |read|
+        config_path = File.join(target, ProductFactory::Config::PATH)
+        config = YAML.safe_load_file(config_path)
+        config.fetch("artifacts")["root"] = "redirected"
+        File.write(config_path, YAML.dump(config))
+        read.call
+      end
+      setup = build_full_setup(target, github:, artifact_store: nil, input:)
+
+      expect { setup.run([]) }
+        .to raise_error(ProductFactory::ConflictError, "configuration changed after planning")
+      expect(File).not_to exist(artifact_path)
+      expect(File).not_to exist(File.join(target, "redirected", "README.md"))
+    end
+  end
+
   it "rejects an unknown adoption key before planning" do
     in_tmp_repo do |target|
       setup = build_full_setup(target, github: FakeGitHub.new, artifact_store: FakeArtifactStore.new)
 
       expect { setup.run(["--adopt", "everything"]) }
         .to raise_error(ProductFactory::UsageError, "unknown adoption: everything")
+      expect(Dir.children(target)).to be_empty
+    end
+  end
+
+  it "rejects an external plan without a configuration fingerprint" do
+    in_tmp_repo do |target|
+      installation = ProductFactory::Operation.new(
+        kind: ProductFactory::Operation::WRITE_INSTALLATION,
+        target: ProductFactory::Installation::PATH,
+        attributes: ProductFactory::Installation.empty.with("artifact_adapter" => "repository").to_h
+      )
+      plan = ProductFactory::Plan.new(
+        run_id: "RUN-EXTERNAL", mode: "setup", operations: [installation], target_root: target
+      )
+
+      expect { build_setup(target).apply(plan) }
+        .to raise_error(ProductFactory::ValidationError, /configuration fingerprint/)
       expect(Dir.children(target)).to be_empty
     end
   end
