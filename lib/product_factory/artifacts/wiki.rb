@@ -27,13 +27,14 @@ module ProductFactory
         with_checkout do |checkout|
           current = read_checkout(checkout)
           if desired?(current, desired)
+            verify_revision!(operation, current, checkout:)
             @snapshot = current
             return true
           end
 
           verify_revision!(operation, current)
           write_documents(checkout, desired)
-          commit_and_push(checkout, desired.keys)
+          commit_and_push(checkout, operation)
         end
         @snapshot = nil
         raise ValidationError, "Artifacts verification failed" unless matches?(operation)
@@ -111,16 +112,27 @@ module ProductFactory
         end
       end
 
-      def commit_and_push(checkout, documents)
-        pages = documents.map { |document| PAGES.fetch(document) }
+      def commit_and_push(checkout, operation)
+        pages = operation.attributes.fetch("documents").keys.map { |document| PAGES.fetch(document) }
         run!("git", "add", "--", *pages, chdir: checkout)
         run!(
           "git", "-c", "user.name=Product Factory",
           "-c", "user.email=product-factory@users.noreply.github.com",
-          "commit", "-m", "Update Product Factory artifacts", chdir: checkout
+          "commit", "-m", "Update Product Factory artifacts",
+          "-m", operation_trailer(operation), chdir: checkout
         )
         run!("git", "push", "origin", "HEAD", chdir: checkout)
       end
+
+      def completed_commit?(checkout, operation)
+        expected_parent = operation.attributes.fetch("expected_revision")
+        parents = run!("git", "show", "-s", "--format=%P", "HEAD", chdir: checkout).strip
+        message = run!("git", "show", "-s", "--format=%B", "HEAD", chdir: checkout).strip
+        parents == expected_parent && message == commit_message(operation)
+      end
+
+      def commit_message(operation) = "Update Product Factory artifacts\n\n#{operation_trailer(operation)}"
+      def operation_trailer(operation) = "Product-Factory-Operation: #{operation.id}"
 
       def run!(*command, chdir: nil)
         output, error, status = @shell.capture3(*command, chdir:, stdin_data: nil)
@@ -135,9 +147,11 @@ module ProductFactory
         raise ValidationError, "invalid Artifacts operation" unless valid
       end
 
-      def verify_revision!(operation, current)
-        raise ConflictError, "Artifacts changed after planning" if
-          current.fetch("revision") != operation.attributes.fetch("expected_revision")
+      def verify_revision!(operation, current, checkout: nil)
+        return if current.fetch("revision") == operation.attributes.fetch("expected_revision")
+        return if checkout && completed_commit?(checkout, operation)
+
+        raise ConflictError, "Artifacts changed after planning"
       end
 
       def desired?(state, desired) = desired.all? { |document, content| state.dig("documents", document) == content }

@@ -61,12 +61,17 @@ RSpec.describe ProductFactory::Artifacts::Wiki do
 
   it "commits logical documents once and preserves human-owned Wiki pages byte-for-byte" do
     ideas = "<!-- product-factory:v1:artifact:ideas/index -->\n# Current Ideas\n"
+    operation = sync_operation({ "ideas/index" => ideas })
 
-    expect(adapter.apply(sync_operation({ "ideas/index" => ideas }))).to be(true)
+    expect(adapter.apply(operation)).to be(true)
     expect(adapter.snapshot.fetch("documents")).to include("ideas/index" => ideas)
     expect(wiki_pages).to include("Home.md" => home, "_Sidebar.md" => sidebar, "Ideas.md" => ideas)
     expect(git!("rev-list", "--count", "HEAD", git_dir: remote).strip).to eq("2")
-    expect(git!("log", "-1", "--format=%s", git_dir: remote).strip).to eq("Update Product Factory artifacts")
+    expect(git!("log", "-1", "--format=%B", git_dir: remote).strip).to eq(<<~MESSAGE.strip)
+      Update Product Factory artifacts
+
+      Product-Factory-Operation: #{operation.id}
+    MESSAGE
   end
 
   it "refuses an unexpected revision without changing the Wiki" do
@@ -81,11 +86,21 @@ RSpec.describe ProductFactory::Artifacts::Wiki do
 
   it "reapplies synchronized documents without creating a commit" do
     ideas = "<!-- product-factory:v1:artifact:ideas/index -->\n# Current Ideas\n"
-    adapter.apply(sync_operation({ "ideas/index" => ideas }))
+    operation = sync_operation({ "ideas/index" => ideas })
+    adapter.apply(operation)
     applied_revision = adapter.revision
 
-    expect(adapter.apply(sync_operation({ "ideas/index" => ideas }))).to be(true)
+    expect(adapter.apply(operation)).to be(true)
     expect(adapter.revision).to eq(applied_revision)
+  end
+
+  it "rejects a completed operation after a later human-only commit" do
+    operation = sync_operation({ "ideas/index" => "factory\n" })
+    adapter.apply(operation)
+    change_wiki("Home.md" => "# Changed by a human\n")
+
+    expect { adapter.apply(operation) }
+      .to raise_error(ProductFactory::ConflictError, "Artifacts changed after planning")
   end
 
   it "does not match when another managed document drifts after synchronization" do
