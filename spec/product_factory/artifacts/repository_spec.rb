@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "timeout"
+
 RSpec.describe ProductFactory::Artifacts::Repository do
   subject(:adapter) { described_class.new(target_root: target, root:) }
 
@@ -42,6 +44,16 @@ RSpec.describe ProductFactory::Artifacts::Repository do
     expect { adapter.apply(operation) }
       .to raise_error(ProductFactory::ConflictError, "Artifacts changed after planning")
     expect(File.read(File.join(target, "product/README.md"))).to eq("human\n")
+  end
+
+  it "rejects unrelated mapped drift when the desired subset already matches" do
+    write(target, "product/README.md", "factory\n")
+    write(target, "product/setup-log.md", "planned\n")
+    operation = sync_operation(documents: { "index" => "factory\n" })
+    write(target, "product/setup-log.md", "human\n")
+
+    expect { adapter.apply(operation) }
+      .to raise_error(ProductFactory::ConflictError, "Artifacts changed after planning")
   end
 
   it "resumes after a previously completed document" do
@@ -90,6 +102,14 @@ RSpec.describe ProductFactory::Artifacts::Repository do
         .to raise_error(ProductFactory::ValidationError, /symlink/)
       expect(File.read(File.join(outside, "victim.md"))).to eq("human\n")
     end
+  end
+
+  it "rejects a FIFO artifact target without blocking" do
+    FileUtils.mkdir_p(File.join(target, "product"))
+    File.mkfifo(File.join(target, "product/README.md"))
+
+    expect { Timeout.timeout(1) { adapter.snapshot } }
+      .to raise_error(ProductFactory::ValidationError, "artifact target is not a regular file: index")
   end
 
   it "leaves Git metadata unchanged" do

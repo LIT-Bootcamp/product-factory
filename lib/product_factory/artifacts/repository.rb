@@ -38,9 +38,9 @@ module ProductFactory
         validate_operation!(operation)
         desired = operation.attributes.fetch("documents")
         current = refresh_snapshot
+        verify_revision!(operation, current)
         return true if desired?(current, desired)
 
-        verify_revision!(operation, current)
         desired.each do |document, content|
           write(document, content) unless current.fetch("documents")[document] == content
         end
@@ -70,7 +70,9 @@ module ProductFactory
 
       def read(document)
         validate_path!(document)
-        File.open(physical_path(document), File::RDONLY | File::NOFOLLOW) do |file|
+        path = physical_path(document)
+        validate_regular_file!(path, document)
+        File.open(path, File::RDONLY | File::NOFOLLOW | File::NONBLOCK) do |file|
           raise ValidationError, "artifact target is not a regular file: #{document}" unless file.stat.file?
 
           file.binmode.read
@@ -79,6 +81,8 @@ module ProductFactory
         nil
       rescue Errno::ELOOP
         raise ValidationError, "artifact target is a symlink: #{document}"
+      rescue Errno::EACCES, Errno::EAGAIN, Errno::EISDIR, Errno::ENODEV, Errno::ENOTDIR, Errno::ENXIO, Errno::EPERM
+        raise ValidationError, "cannot read artifact target: #{document}"
       end
 
       def write(document, content)
@@ -93,6 +97,12 @@ module ProductFactory
 
       def validate_path!(document)
         FileSync::Path.new(root: @target_root, relative: relative_path(document)).to_s
+      end
+
+      def validate_regular_file!(path, document)
+        stat = File.lstat(path)
+        raise ValidationError, "artifact target is a symlink: #{document}" if stat.symlink?
+        raise ValidationError, "artifact target is not a regular file: #{document}" unless stat.file?
       end
 
       def physical_path(document) = File.join(@root, PATHS.fetch(document))
