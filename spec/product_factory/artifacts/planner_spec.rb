@@ -110,14 +110,34 @@ RSpec.describe ProductFactory::Artifacts::Planner do
     expect(result).to eq(operations: [], conflicts: [])
   end
 
+  it "includes additional documents and hashes every captured document" do
+    existing_context = "<!-- product-factory:v1:artifact:context/v1 -->\n# Existing\n"
+    snapshot["documents"]["context/v1"] = existing_context
+
+    operation = plan(
+      snapshot:,
+      installed_hashes:,
+      adoptions:,
+      operation_summaries:,
+      failures:,
+      additional_documents: { "ideas/IDEA-141/v2" => "# IDEA-141 V2\n" }
+    ).fetch(:operations).fetch(0)
+
+    expect(operation.attributes.fetch("documents"))
+      .to include("ideas/IDEA-141/v2" => "# IDEA-141 V2\n")
+    expect(operation.attributes.fetch("expected_hashes"))
+      .to include("context/v1" => Digest::SHA256.hexdigest(existing_context))
+  end
+
   private
 
-  def plan(**arguments)
+  def plan(additional_documents: {}, **arguments)
     described_class.call(
       schema:,
       run_id: "RUN-1",
       recorded_at: "2026-09-05T00:00:00Z",
       adapter: "repository",
+      additional_documents:,
       **arguments
     )
   end

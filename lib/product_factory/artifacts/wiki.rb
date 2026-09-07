@@ -19,16 +19,23 @@ module ProductFactory
         @remote = remote || "https://github.com/#{organization}/#{repository}.wiki.git"
       end
 
-      def snapshot = @snapshot ||= with_checkout { |checkout| read_checkout(checkout) }
+      def snapshot(document_ids: Planner::DOCUMENT_IDS)
+        document_ids = valid_document_ids!(document_ids)
+        @snapshots ||= {}
+        @snapshots[document_ids] ||= with_checkout { |checkout| read_checkout(checkout, document_ids:) }
+      end
+
+      def link(document) = File.basename(mapped_page(document), ".md")
 
       def apply(operation)
         validate_operation!(operation)
         desired = operation.attributes.fetch("documents")
+        document_ids = operation.attributes.fetch("expected_hashes").keys
         with_checkout do |checkout|
-          current = read_checkout(checkout)
+          current = read_checkout(checkout, document_ids:)
           if desired?(current, desired)
             verify_revision!(operation, current, checkout:)
-            @snapshot = current
+            @snapshots = { document_ids => current }
             return true
           end
 
@@ -36,7 +43,7 @@ module ProductFactory
           write_documents(checkout, desired)
           commit_and_push(checkout, operation)
         end
-        @snapshot = nil
+        @snapshots = nil
         raise ValidationError, "Artifacts verification failed" unless matches?(operation)
 
         true
@@ -44,8 +51,8 @@ module ProductFactory
 
       def matches?(operation)
         validate_operation!(operation)
-        @snapshot = nil
-        snapshot_matches?(snapshot, operation)
+        @snapshots = nil
+        snapshot_matches?(snapshot(document_ids: operation.attributes.fetch("expected_hashes").keys), operation)
       end
 
       def revision = snapshot.fetch("revision")
@@ -67,16 +74,16 @@ module ProductFactory
              @remote, checkout)
       end
 
-      def read_checkout(checkout)
+      def read_checkout(checkout, document_ids:)
         raise missing_home unless read_page(checkout, "Home.md")
 
         revision = run!("git", "rev-parse", "HEAD", chdir: checkout).strip
-        documents = PAGES.filter_map do |document, page|
-          content = read_page(checkout, page)
+        documents = document_ids.filter_map do |document|
+          content = read_page(checkout, mapped_page(document))
           [document, content] if content
         end.to_h
         legacy_owned_documents = documents.keys.select do |document|
-          documents.fetch(document).include?(legacy_marker(PAGES.fetch(document)))
+          documents.fetch(document).include?(legacy_marker(mapped_page(document)))
         end
         immutable("revision" => revision, "documents" => documents, "legacy_owned_documents" => legacy_owned_documents)
       end
@@ -107,13 +114,13 @@ module ProductFactory
             file.write(content)
             file.flush
             file.fsync
-            File.rename(file.path, File.join(checkout, PAGES.fetch(document)))
+            File.rename(file.path, File.join(checkout, mapped_page(document)))
           end
         end
       end
 
       def commit_and_push(checkout, operation)
-        pages = operation.attributes.fetch("documents").keys.map { |document| PAGES.fetch(document) }
+        pages = operation.attributes.fetch("documents").keys.map { |document| mapped_page(document) }
         run!("git", "add", "--", *pages, chdir: checkout)
         run!(
           "git", "-c", "user.name=Product Factory",
@@ -159,13 +166,30 @@ module ProductFactory
       def snapshot_matches?(state, operation)
         desired = operation.attributes.fetch("documents")
         expected = operation.attributes.fetch("expected_hashes")
-        PAGES.keys.all? do |document|
+        expected.all? do |document, hash|
           content = state.fetch("documents")[document]
-          desired.key?(document) ? content == desired.fetch(document) : digest(content) == expected.fetch(document)
+          desired.key?(document) ? content == desired.fetch(document) : digest(content) == hash
         end
       end
 
       def digest(content) = content && Digest::SHA256.hexdigest(content)
+
+      def mapped_page(document)
+        validate_document!(document)
+        PAGES.fetch(document) { "Product-Factory--#{document.gsub('/', '--')}.md" }
+      end
+
+      def valid_document_ids!(document_ids)
+        unless document_ids.is_a?(Array) && document_ids.all? { |document| Artifacts.valid_document_id?(document) }
+          raise ValidationError, "invalid artifact document"
+        end
+
+        document_ids.uniq.freeze
+      end
+
+      def validate_document!(document)
+        raise ValidationError, "invalid artifact document" unless Artifacts.valid_document_id?(document)
+      end
 
       def legacy_marker(page) = "<!-- product-factory:v1:wiki:#{File.basename(page, '.md')} -->"
 

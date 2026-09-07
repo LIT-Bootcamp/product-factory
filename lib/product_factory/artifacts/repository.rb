@@ -2,6 +2,7 @@
 
 module ProductFactory
   module Artifacts
+    # rubocop:disable-next Metrics/ClassLength
     class Repository
       PATHS = {
         "index" => "README.md",
@@ -21,9 +22,11 @@ module ProductFactory
         @files = FileSync::Target.new(root: @target_root)
       end
 
-      def snapshot
-        @snapshot ||= begin
-          documents = PATHS.filter_map do |document, _relative|
+      def snapshot(document_ids: Planner::DOCUMENT_IDS)
+        document_ids = valid_document_ids!(document_ids)
+        @snapshots ||= {}
+        @snapshots[document_ids] ||= begin
+          documents = document_ids.filter_map do |document|
             content = read(document)
             [document, content] if content
           end.to_h
@@ -34,17 +37,19 @@ module ProductFactory
         end
       end
 
+      def link(document) = mapped_path(document)
+
       def apply(operation)
         validate_operation!(operation)
         desired = operation.attributes.fetch("documents")
-        current = refresh_snapshot
+        current = refresh_snapshot(document_ids: operation.attributes.fetch("expected_hashes").keys)
         verify_revision!(operation, current)
         return true if desired?(current, desired)
 
         desired.each do |document, content|
           write(document, content) unless current.fetch("documents")[document] == content
         end
-        @snapshot = nil
+        @snapshots = nil
         raise ValidationError, "Artifacts verification failed" unless matches?(operation)
 
         true
@@ -52,7 +57,7 @@ module ProductFactory
 
       def matches?(operation)
         validate_operation!(operation)
-        snapshot_matches?(refresh_snapshot, operation)
+        snapshot_matches?(refresh_snapshot(document_ids: operation.attributes.fetch("expected_hashes").keys), operation)
       end
 
       def revision = snapshot.fetch("revision")
@@ -63,9 +68,9 @@ module ProductFactory
 
       private
 
-      def refresh_snapshot
-        @snapshot = nil
-        snapshot
+      def refresh_snapshot(document_ids:)
+        @snapshots = nil
+        snapshot(document_ids:)
       end
 
       def read(document)
@@ -105,8 +110,15 @@ module ProductFactory
         raise ValidationError, "artifact target is not a regular file: #{document}" unless stat.file?
       end
 
-      def physical_path(document) = File.join(@root, PATHS.fetch(document))
-      def relative_path(document) = File.join(@relative_root, PATHS.fetch(document))
+      def physical_path(document) = File.join(@root, mapped_path(document))
+      def relative_path(document) = File.join(@relative_root, mapped_path(document))
+
+      def mapped_path(document)
+        validate_document!(document)
+        PATHS.fetch(document) do
+          document.end_with?("/index") ? "#{document.delete_suffix('/index')}/README.md" : "#{document}.md"
+        end
+      end
 
       def desired?(current, desired)
         desired.all? { |document, content| current.fetch("documents")[document] == content }
@@ -115,9 +127,9 @@ module ProductFactory
       def snapshot_matches?(current, operation)
         desired = operation.attributes.fetch("documents")
         expected = operation.attributes.fetch("expected_hashes")
-        PATHS.keys.all? do |document|
+        expected.all? do |document, hash|
           content = current.fetch("documents")[document]
-          desired.key?(document) ? content == desired.fetch(document) : digest(content) == expected.fetch(document)
+          desired.key?(document) ? content == desired.fetch(document) : digest(content) == hash
         end
       end
 
@@ -126,10 +138,10 @@ module ProductFactory
 
         expected = operation.attributes.fetch("expected_hashes")
         desired = operation.attributes.fetch("documents")
-        safe = PATHS.keys.all? do |document|
+        safe = expected.all? do |document, hash|
           actual = digest(current.fetch("documents")[document])
           completed = desired.key?(document) && actual == digest(desired.fetch(document))
-          actual == expected.fetch(document) || completed
+          actual == hash || completed
         end
         raise ConflictError, "Artifacts changed after planning" unless safe
       end
@@ -138,6 +150,18 @@ module ProductFactory
         attributes = operation.attributes
         valid = Artifacts.valid_operation?(operation) && attributes["adapter"] == "repository"
         raise ValidationError, "invalid repository artifact operation" unless valid
+      end
+
+      def valid_document_ids!(document_ids)
+        unless document_ids.is_a?(Array) && document_ids.all? { |document| Artifacts.valid_document_id?(document) }
+          raise ValidationError, "invalid artifact document"
+        end
+
+        document_ids.uniq.freeze
+      end
+
+      def validate_document!(document)
+        raise ValidationError, "invalid artifact document" unless Artifacts.valid_document_id?(document)
       end
 
       def digest(content) = content && Digest::SHA256.hexdigest(content)
