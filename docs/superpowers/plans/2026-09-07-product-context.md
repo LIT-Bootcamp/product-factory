@@ -102,10 +102,10 @@ Applying an operation writes:
 Wiki expectations:
 
 ```ruby
-expect(adapter.link("context/v1")).to eq("context--v1")
+expect(adapter.link("context/v1")).to eq("Product-Factory--context--v1")
 ```
 
-The Wiki Git filename is `context--v1.md`; the seven existing setup pages retain their friendly names. Both adapters must reject unsafe IDs before filesystem or Git mutation.
+The Wiki Git filename is `Product-Factory--context--v1.md`; the prefix prevents dynamic IDs from colliding with the seven friendly setup pages. Both adapters must reject unsafe IDs before filesystem or Git mutation.
 
 - [ ] **Step 5: Run adapter specs and verify RED**
 
@@ -133,7 +133,7 @@ end
 
 # wiki
 def mapped_page(document)
-  PAGES.fetch(document) { "#{document.gsub('/', '--')}.md" }
+  PAGES.fetch(document) { "Product-Factory--#{document.gsub('/', '--')}.md" }
 end
 ```
 
