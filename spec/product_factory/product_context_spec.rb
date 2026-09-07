@@ -114,4 +114,33 @@ RSpec.describe ProductFactory::ProductContext do
       MD
     )
   end
+
+  it "returns only the landing document when the immutable version already exists" do
+    snapshot_with_version = {
+      "documents" => {
+        "context/v1" => "<!-- product-factory:v1:artifact:context/v1 -->\n# Existing\n"
+      }
+    }
+
+    documents = service.call(
+      config:,
+      snapshot: snapshot_with_version,
+      answers:,
+      actor: "human:factory-test",
+      run_id: "RUN-1",
+      recorded_at: "2026-09-07T10:00:00Z",
+      version_link: "context/v1.md"
+    )
+
+    expect(documents).to eq(
+      "context" => <<~MD
+        <!-- product-factory:v1:artifact:context -->
+        # Product Context — Example Product
+
+        Current version: [v1](context/v1.md)
+
+        Help people learn with mentors
+      MD
+    )
+  end
 end
