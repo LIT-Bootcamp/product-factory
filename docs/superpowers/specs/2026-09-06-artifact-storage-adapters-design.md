@@ -1,6 +1,7 @@
 # Product Factory Artifact Storage Adapters
 
-**Date:** 2026-09-06  
+**Date:** 2026-09-06
+
 **Status:** Approved for implementation planning
 
 ## Context
