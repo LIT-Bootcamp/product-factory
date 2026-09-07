@@ -138,7 +138,7 @@ The delivered Product Context portion of Slice 3 asks for:
 - optional constraints;
 - optional non-goals.
 
-Setup asks for these eight values before its one confirmation. It publishes the mutable configured `product.context_document` landing document (`context.md` by default) and immutable `context/v1.md` version. With the repository adapter, users review and commit that output through their normal Git workflow; setup never commits, branches, or pushes.
+Setup asks for these eight values before its one confirmation. It publishes the mutable configured `product.context_document` logical ID (`context` by default) and immutable `context/v1` version. The repository adapter renders those IDs as `product/context.md` and `product/context/v1.md`. Users review and commit repository-adapter output through their normal Git workflow; setup never commits, branches, or pushes.
 
 Only Product Context is complete in Slice 3. Product Inventory, Ideation, Idea approval, and Idea revision remain next work.
 

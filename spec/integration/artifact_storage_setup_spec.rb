@@ -31,7 +31,9 @@ RSpec.describe ProductFactory::CLI do
     expect(ProductFactory::Config.load(target).artifacts).to eq("adapter" => "repository", "root" => "product")
     expect(ProductFactory::Installation.load(target).artifact_adapter).to eq("repository")
     expect(second_output.string).to include("Product Factory is up to date")
-    expect(second_output.string).not_to include("Mission:", "SYNC artifacts:documents")
+    expect(second_output.string).not_to include(
+      "CREATE ", "UPDATE ", "ADOPT ", "SYNC ", "Apply this plan? [yes/no]"
+    )
     expect(git!("rev-parse", "HEAD", chdir: target)).to eq(head_before_setup)
     expect(git!("remote", "get-url", "origin", chdir: target)).to eq(remote_before)
   end
