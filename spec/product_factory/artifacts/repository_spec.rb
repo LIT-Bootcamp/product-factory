@@ -41,6 +41,13 @@ RSpec.describe ProductFactory::Artifacts::Repository do
     expect(adapter.link("context/v1")).to eq("context/v1.md")
   end
 
+  it "rejects dynamic documents that collide with fixed setup paths" do
+    %w[README ideas/README epics/README tickets/README research/README factory-runs/README].each do |document|
+      expect { adapter.link(document) }
+        .to raise_error(ProductFactory::ValidationError, "artifact document collides with a fixed setup path")
+    end
+  end
+
   it "rejects unsafe versioned documents before writing" do
     operation = sync_operation(documents: { "../context" => "# Context\n" })
 

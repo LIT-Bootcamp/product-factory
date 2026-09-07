@@ -115,9 +115,12 @@ module ProductFactory
 
       def mapped_path(document)
         validate_document!(document)
-        PATHS.fetch(document) do
-          document.end_with?("/index") ? "#{document.delete_suffix('/index')}/README.md" : "#{document}.md"
-        end
+        return PATHS.fetch(document) if PATHS.key?(document)
+
+        path = document.end_with?("/index") ? "#{document.delete_suffix('/index')}/README.md" : "#{document}.md"
+        raise ValidationError, "artifact document collides with a fixed setup path" if PATHS.value?(path)
+
+        path
       end
 
       def desired?(current, desired)
