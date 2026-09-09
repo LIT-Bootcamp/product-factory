@@ -48,6 +48,17 @@ RSpec.describe ProductFactory::Artifacts::Repository do
     end
   end
 
+  it "rejects logical documents that map to the same repository path" do
+    colliding_documents = { "context/index" => "index\n", "context/README" => "readme\n" }
+    snapshot = adapter.snapshot(
+      document_ids: ProductFactory::Artifacts::Planner::DOCUMENT_IDS + colliding_documents.keys
+    )
+
+    expect { adapter.apply(sync_operation(documents: colliding_documents, snapshot:)) }
+      .to raise_error(ProductFactory::ValidationError, "invalid repository artifact operation")
+    expect(File).not_to exist(File.join(target, "product/context/README.md"))
+  end
+
   it "rejects unsafe versioned documents before writing" do
     operation = sync_operation(documents: { "../context" => "# Context\n" })
 

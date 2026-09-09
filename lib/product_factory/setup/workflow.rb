@@ -61,8 +61,6 @@ module ProductFactory
       def snapshot_product_context(config)
         document_ids = Artifacts::Planner::DOCUMENT_IDS + ProductContext.document_ids(config)
         snapshot = @artifact_store.snapshot(document_ids:)
-        return [snapshot, nil] if snapshot.fetch("documents", {}).key?(document_ids.last)
-
         [snapshot, ProductContextWizard.call(input: @input, output: @output, snapshot:, document_ids:)]
       end
 

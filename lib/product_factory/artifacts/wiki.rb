@@ -21,6 +21,7 @@ module ProductFactory
 
       def snapshot(document_ids: Planner::DOCUMENT_IDS)
         document_ids = valid_document_ids!(document_ids)
+        @document_ids = document_ids
         @snapshots ||= {}
         @snapshots[document_ids] ||= with_checkout { |checkout| read_checkout(checkout, document_ids:) }
       end
@@ -55,9 +56,11 @@ module ProductFactory
         snapshot_matches?(snapshot(document_ids: operation.attributes.fetch("expected_hashes").keys), operation)
       end
 
-      def revision = snapshot.fetch("revision")
+      def revision(document_ids: @document_ids || Planner::DOCUMENT_IDS) = snapshot(document_ids:).fetch("revision")
 
-      def document_hashes = snapshot.fetch("documents").transform_values { |content| Digest::SHA256.hexdigest(content) }
+      def document_hashes(document_ids: @document_ids || Planner::DOCUMENT_IDS)
+        snapshot(document_ids:).fetch("documents").transform_values { |content| Digest::SHA256.hexdigest(content) }
+      end
 
       private
 
@@ -184,7 +187,7 @@ module ProductFactory
           raise ValidationError, "invalid artifact document"
         end
 
-        document_ids.uniq.freeze
+        document_ids.uniq.sort.freeze
       end
 
       def validate_document!(document)

@@ -23,7 +23,9 @@ module ProductFactory
       end
 
       def call
-        return if @snapshot.fetch("documents", {}).key?(@document_ids.last)
+        if ProductContext.version_owned?(@snapshot, @document_ids.last)
+          return { "mission" => ProductContext.version_mission(@snapshot, @document_ids.last) }
+        end
 
         FIELDS.to_h do |key, prompt, required|
           [key, required == :required ? required_answer(prompt) : optional_answer(prompt)]

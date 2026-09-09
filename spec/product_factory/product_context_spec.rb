@@ -143,4 +143,37 @@ RSpec.describe ProductFactory::ProductContext do
       MD
     )
   end
+
+  it "derives the landing document from an established immutable Product Context" do
+    established_snapshot = {
+      "documents" => {
+        "context/v1" => <<~MD
+          <!-- product-factory:v1:artifact:context/v1 -->
+          # Product Context — Example Product
+
+          ## Mission
+          Help people learn with mentors
+
+          ## Target Users
+          Students and mentors
+        MD
+      }
+    }
+
+    documents = service.call(
+      config:, snapshot: established_snapshot, answers: nil, actor: "human:factory-test", run_id: "RUN-1",
+      recorded_at: "2026-09-07T10:00:00Z", version_link: "context/v1.md"
+    )
+
+    expect(documents).to eq(
+      "context" => <<~MD
+        <!-- product-factory:v1:artifact:context -->
+        # Product Context — Example Product
+
+        Current version: [v1](context/v1.md)
+
+        Help people learn with mentors
+      MD
+    )
+  end
 end

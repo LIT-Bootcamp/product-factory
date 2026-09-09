@@ -24,6 +24,7 @@ module ProductFactory
 
       def snapshot(document_ids: Planner::DOCUMENT_IDS)
         document_ids = valid_document_ids!(document_ids)
+        @document_ids = document_ids
         @snapshots ||= {}
         @snapshots[document_ids] ||= begin
           documents = document_ids.filter_map do |document|
@@ -60,10 +61,10 @@ module ProductFactory
         snapshot_matches?(refresh_snapshot(document_ids: operation.attributes.fetch("expected_hashes").keys), operation)
       end
 
-      def revision = snapshot.fetch("revision")
+      def revision(document_ids: @document_ids || Planner::DOCUMENT_IDS) = snapshot(document_ids:).fetch("revision")
 
-      def document_hashes
-        snapshot.fetch("documents").transform_values { |content| digest(content) }
+      def document_hashes(document_ids: @document_ids || Planner::DOCUMENT_IDS)
+        snapshot(document_ids:).fetch("documents").transform_values { |content| digest(content) }
       end
 
       private
@@ -151,16 +152,19 @@ module ProductFactory
 
       def validate_operation!(operation)
         attributes = operation.attributes
-        valid = Artifacts.valid_operation?(operation) && attributes["adapter"] == "repository"
+        valid = Artifacts.valid_operation?(operation) && attributes["adapter"] == "repository" &&
+                unique_paths?(attributes["expected_hashes"].keys)
         raise ValidationError, "invalid repository artifact operation" unless valid
       end
+
+      def unique_paths?(documents) = documents.map { |document| mapped_path(document) }.uniq.length == documents.length
 
       def valid_document_ids!(document_ids)
         unless document_ids.is_a?(Array) && document_ids.all? { |document| Artifacts.valid_document_id?(document) }
           raise ValidationError, "invalid artifact document"
         end
 
-        document_ids.uniq.freeze
+        document_ids.uniq.sort.freeze
       end
 
       def validate_document!(document)

@@ -12,6 +12,19 @@ module ProductFactory
       [landing_id, "#{landing_id}/v1"]
     end
 
+    def self.version_owned?(snapshot, document_id)
+      content = snapshot.dig("documents", document_id)
+      content&.include?(format("<!-- product-factory:v1:artifact:%<document>s -->", document: document_id))
+    end
+
+    def self.version_mission(snapshot, document_id)
+      lines = snapshot.dig("documents", document_id)&.lines(chomp: true)
+      index = lines&.index("## Mission")
+      raise ValidationError, "context/v1 must include a Mission section" unless index
+
+      lines.fetch(index + 1)
+    end
+
     def initialize(config:, snapshot:, answers:, actor:, run_id:, recorded_at:, version_link:)
       super()
       @config = config
@@ -25,7 +38,7 @@ module ProductFactory
 
     def call
       documents = { landing_id => render(landing_lines) }
-      documents[version_id] = render(version_lines) unless version_exists?
+      documents[version_id] = render(version_lines) unless version_owned?
       documents
     end
 
@@ -41,8 +54,18 @@ module ProductFactory
       @version_id ||= "#{landing_id}/v1"
     end
 
-    def version_exists?
-      snapshot.fetch("documents", {}).key?(version_id)
+    def version_owned?
+      self.class.version_owned?(snapshot, version_id)
+    end
+
+    def landing_mission
+      return required_answer("mission") if answers.is_a?(Hash)
+
+      version_mission
+    end
+
+    def version_mission
+      self.class.version_mission(snapshot, version_id)
     end
 
     def landing_lines
@@ -52,7 +75,7 @@ module ProductFactory
         "",
         "Current version: [v1](#{version_link})",
         "",
-        required_answer("mission"),
+        landing_mission,
         ""
       ]
     end

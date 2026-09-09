@@ -10,7 +10,7 @@ RSpec.describe ProductFactory::CLI do
 
   after { FileUtils.remove_entry(root) }
 
-  it "defaults to repository artifacts through two real CLI setup runs" do
+  it "defaults to repository artifacts through two real CLI setup runs", :aggregate_failures do
     head_before_setup = git!("rev-parse", "HEAD", chdir: target)
     remote_before = git!("remote", "get-url", "origin", chdir: target)
     first_output = StringIO.new
@@ -29,13 +29,46 @@ RSpec.describe ProductFactory::CLI do
       "# Product Context", "| Version | 1 |", "## Mission"
     )
     expect(ProductFactory::Config.load(target).artifacts).to eq("adapter" => "repository", "root" => "product")
-    expect(ProductFactory::Installation.load(target).artifact_adapter).to eq("repository")
+    installation = ProductFactory::Installation.load(target)
+    repository_store = ProductFactory::Artifacts::Repository.new(target_root: target, root: "product")
+    product_context_ids = ProductFactory::Artifacts::Planner::DOCUMENT_IDS + %w[context context/v1]
+    expect(installation.artifact_adapter).to eq("repository")
+    expect(installation.artifact_document_hashes).to include(
+      "context" => Digest::SHA256.hexdigest(File.binread(File.join(target, "product/context.md"))),
+      "context/v1" => Digest::SHA256.hexdigest(File.binread(File.join(target, "product/context/v1.md")))
+    )
+    expect(installation.artifact_revision).to eq(repository_store.revision(document_ids: product_context_ids))
     expect(second_output.string).to include("Product Factory is up to date")
     expect(second_output.string).not_to include(
       "CREATE ", "UPDATE ", "ADOPT ", "SYNC ", "Apply this plan? [yes/no]"
     )
     expect(git!("rev-parse", "HEAD", chdir: target)).to eq(head_before_setup)
     expect(git!("remote", "get-url", "origin", chdir: target)).to eq(remote_before)
+  end
+
+  it "recreates a deleted landing context from v1 without prompting for context answers" do
+    expect(run_setup(input: "Bootcamper\n#{product_context_input('yes')}")).to eq(0)
+    version_path = File.join(target, "product/context/v1.md")
+    version = File.binread(version_path)
+    File.delete(File.join(target, "product/context.md"))
+    output = StringIO.new
+
+    expect(run_setup(input: "yes\n", output:)).to eq(0)
+    expect(output.string).not_to include("Mission: ")
+    expect(File.binread(File.join(target, "product/context.md"))).to include("Help people learn with mentors")
+    expect(File.binread(version_path)).to eq(version)
+  end
+
+  it "reports a collision for foreign immutable context without overwriting it" do
+    foreign_context = "# Human Product Context\n"
+    write(target, "product/context/v1.md", foreign_context)
+    error = StringIO.new
+
+    status = run_setup(input: "Bootcamper\n#{product_context_input('yes')}", error:)
+
+    expect(status).to eq(2)
+    expect(error.string).to include("plan has conflicts")
+    expect(File.binread(File.join(target, "product/context/v1.md"))).to eq(foreign_context)
   end
 
   context "with a legacy v1 Wiki installation" do
@@ -67,7 +100,10 @@ RSpec.describe ProductFactory::CLI do
       expect(ProductFactory::Config.load(target).artifacts).to eq("adapter" => "wiki")
       expect(installation.to_h).to include(
         "artifact_adapter" => "wiki", "artifact_revision" => wiki_head,
-        "artifact_document_hashes" => a_hash_including(*wiki_documents.values)
+        "artifact_document_hashes" => a_hash_including(*wiki_documents.values, "context", "context/v1")
+      )
+      expect(installation.artifact_revision).to eq(
+        wiki_store.revision(document_ids: ProductFactory::Artifacts::Planner::DOCUMENT_IDS + %w[context context/v1])
       )
       expect(installation.to_h).not_to include("wiki_page_hashes", "wiki_head")
       expect(first_output.string).to include("SYNC artifacts:documents")

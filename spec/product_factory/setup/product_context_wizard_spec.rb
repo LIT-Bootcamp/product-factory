@@ -50,13 +50,24 @@ RSpec.describe ProductFactory::Setup::ProductContextWizard do
   it "does not prompt when immutable Product Context already exists" do
     input = instance_double(StringIO)
     output = instance_double(StringIO)
+    snapshot = {
+      "documents" => {
+        "context/v1" => <<~MD
+          <!-- product-factory:v1:artifact:context/v1 -->
+          # Product Context — Example Product
+
+          ## Mission
+          Help people learn with mentors
+        MD
+      }
+    }
+
     allow(input).to receive(:gets)
     allow(output).to receive(:print)
 
     expect(described_class.call(
-             input:, output:, snapshot: { "documents" => { "context/v1" => "existing" } }, document_ids: %w[context
-                                                                                                            context/v1]
-           )).to be_nil
+             input:, output:, snapshot:, document_ids: %w[context context/v1]
+           )).to eq("mission" => "Help people learn with mentors")
     expect(input).not_to have_received(:gets)
     expect(output).not_to have_received(:print)
   end
