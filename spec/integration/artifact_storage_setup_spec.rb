@@ -10,12 +10,13 @@ RSpec.describe ProductFactory::CLI do
 
   after { FileUtils.remove_entry(root) }
 
-  it "defaults to repository artifacts through two real CLI setup runs" do
-    head_before = git!("rev-parse", "HEAD", chdir: target)
+  it "defaults to repository artifacts through two real CLI setup runs", :aggregate_failures do
+    head_before_setup = git!("rev-parse", "HEAD", chdir: target)
     remote_before = git!("remote", "get-url", "origin", chdir: target)
     first_output = StringIO.new
     first_error = StringIO.new
-    first_status = run_setup(input: "Bootcamper\nyes\n", output: first_output, error: first_error)
+    first_status = run_setup(input: "Bootcamper\n#{product_context_input('yes')}", output: first_output,
+                             error: first_error)
     second_output = StringIO.new
     second_error = StringIO.new
     second_status = run_setup(input: "", output: second_output, error: second_error)
@@ -23,11 +24,51 @@ RSpec.describe ProductFactory::CLI do
     expect(first_status).to eq(0), first_error.string
     expect(second_status).to eq(0), second_error.string
     expect_repository_documents
+    expect(File.binread(File.join(target, "product/context.md"))).to include("Current version: [v1](context/v1.md)")
+    expect(File.read(File.join(target, "product/context/v1.md"))).to include(
+      "# Product Context", "| Version | 1 |", "## Mission"
+    )
     expect(ProductFactory::Config.load(target).artifacts).to eq("adapter" => "repository", "root" => "product")
-    expect(ProductFactory::Installation.load(target).artifact_adapter).to eq("repository")
+    installation = ProductFactory::Installation.load(target)
+    repository_store = ProductFactory::Artifacts::Repository.new(target_root: target, root: "product")
+    product_context_ids = ProductFactory::Artifacts::Planner::DOCUMENT_IDS + %w[context context/v1]
+    expect(installation.artifact_adapter).to eq("repository")
+    expect(installation.artifact_document_hashes).to include(
+      "context" => Digest::SHA256.hexdigest(File.binread(File.join(target, "product/context.md"))),
+      "context/v1" => Digest::SHA256.hexdigest(File.binread(File.join(target, "product/context/v1.md")))
+    )
+    expect(installation.artifact_revision).to eq(repository_store.revision(document_ids: product_context_ids))
     expect(second_output.string).to include("Product Factory is up to date")
-    expect(git!("rev-parse", "HEAD", chdir: target)).to eq(head_before)
+    expect(second_output.string).not_to include(
+      "CREATE ", "UPDATE ", "ADOPT ", "SYNC ", "Apply this plan? [yes/no]"
+    )
+    expect(git!("rev-parse", "HEAD", chdir: target)).to eq(head_before_setup)
     expect(git!("remote", "get-url", "origin", chdir: target)).to eq(remote_before)
+  end
+
+  it "recreates a deleted landing context from v1 without prompting for context answers" do
+    expect(run_setup(input: "Bootcamper\n#{product_context_input('yes')}")).to eq(0)
+    version_path = File.join(target, "product/context/v1.md")
+    version = File.binread(version_path)
+    File.delete(File.join(target, "product/context.md"))
+    output = StringIO.new
+
+    expect(run_setup(input: "yes\n", output:)).to eq(0)
+    expect(output.string).not_to include("Mission: ")
+    expect(File.binread(File.join(target, "product/context.md"))).to include("Help people learn with mentors")
+    expect(File.binread(version_path)).to eq(version)
+  end
+
+  it "reports a collision for foreign immutable context without overwriting it" do
+    foreign_context = "# Human Product Context\n"
+    write(target, "product/context/v1.md", foreign_context)
+    error = StringIO.new
+
+    status = run_setup(input: "Bootcamper\n#{product_context_input('yes')}", error:)
+
+    expect(status).to eq(2)
+    expect(error.string).to include("plan has conflicts")
+    expect(File.binread(File.join(target, "product/context/v1.md"))).to eq(foreign_context)
   end
 
   context "with a legacy v1 Wiki installation" do
@@ -37,10 +78,11 @@ RSpec.describe ProductFactory::CLI do
       write_legacy_installation
     end
 
-    it "migrates physical pages and state without changing Home or _Sidebar" do
+    it "migrates physical pages and state without changing Home or _Sidebar", :aggregate_failures do
       first_output = StringIO.new
       first_error = StringIO.new
-      first_status = run_setup(input: "yes\n", output: first_output, error: first_error, artifact_store: wiki_store)
+      first_status = run_setup(input: product_context_input("yes"), output: first_output, error: first_error,
+                               artifact_store: wiki_store)
       second_output = StringIO.new
       second_error = StringIO.new
       second_status = run_setup(input: "", output: second_output, error: second_error, artifact_store: wiki_store)
@@ -51,10 +93,17 @@ RSpec.describe ProductFactory::CLI do
       expect(wiki_page("Home.md")).to eq(home)
       expect(wiki_page("_Sidebar.md")).to eq(sidebar)
       expect_generic_wiki_documents
+      expect(wiki_page("Product-Factory--context.md")).to include(
+        "Current version: [v1](Product-Factory--context--v1)"
+      )
+      expect(wiki_page("Product-Factory--context--v1.md")).to include("Initial Product Context")
       expect(ProductFactory::Config.load(target).artifacts).to eq("adapter" => "wiki")
       expect(installation.to_h).to include(
         "artifact_adapter" => "wiki", "artifact_revision" => wiki_head,
-        "artifact_document_hashes" => a_hash_including(*wiki_documents.values)
+        "artifact_document_hashes" => a_hash_including(*wiki_documents.values, "context", "context/v1")
+      )
+      expect(installation.artifact_revision).to eq(
+        wiki_store.revision(document_ids: ProductFactory::Artifacts::Planner::DOCUMENT_IDS + %w[context context/v1])
       )
       expect(installation.to_h).not_to include("wiki_page_hashes", "wiki_head")
       expect(first_output.string).to include("SYNC artifacts:documents")
@@ -62,14 +111,14 @@ RSpec.describe ProductFactory::CLI do
     end
 
     it "switches to repository artifacts without touching the Wiki" do
-      expect(run_setup(input: "yes\n", artifact_store: wiki_store)).to eq(0)
+      expect(run_setup(input: product_context_input("yes"), artifact_store: wiki_store)).to eq(0)
       wiki_head_before = wiki_head
       wiki_tree_before = wiki_tree
       application_head_before = git!("rev-parse", "HEAD", chdir: target)
       switch_to_repository
       switch_output = StringIO.new
       switch_error = StringIO.new
-      switch_status = run_setup(input: "yes\n", output: switch_output, error: switch_error)
+      switch_status = run_setup(input: product_context_input("yes"), output: switch_output, error: switch_error)
       second_output = StringIO.new
       second_status = run_setup(input: "", output: second_output)
 
@@ -84,16 +133,16 @@ RSpec.describe ProductFactory::CLI do
     end
 
     it "persists an adapter switch when every repository document already matches" do
-      expect(run_setup(input: "yes\n", artifact_store: wiki_store)).to eq(0)
+      expect(run_setup(input: product_context_input("yes"), artifact_store: wiki_store)).to eq(0)
       switch_to_repository
       desired_repository_documents.each { |path, content| write(target, path, content) }
       output = StringIO.new
       error = StringIO.new
 
-      status = run_setup(input: "yes\n", output:, error:)
+      status = run_setup(input: product_context_input("yes"), output:, error:)
 
       expect(status).to eq(0), error.string
-      expect(output.string).not_to include("SYNC artifacts:documents")
+      expect(output.string).to include("SYNC artifacts:documents")
       expect(ProductFactory::Installation.load(target).artifact_adapter).to eq("repository")
       expect_repository_documents
     end
@@ -171,7 +220,7 @@ RSpec.describe ProductFactory::CLI do
 
   def expect_repository_documents
     expect(Dir.glob(File.join(target, "product/**/*.md")).map { |path| path.delete_prefix("#{target}/") })
-      .to match_array(repository_documents.keys)
+      .to include(*repository_documents.keys, "product/context.md", "product/context/v1.md")
     repository_documents.each do |path, document|
       expect(File.binread(File.join(target, path))).to include("product-factory:v1:artifact:#{document}")
     end
@@ -238,6 +287,20 @@ RSpec.describe ProductFactory::CLI do
       "product/factory-runs/README.md" => "<!-- product-factory:v1:artifact:factory-runs/index -->\n" \
                                           "# Factory Runs\n\nNo factory phase runs have been published yet.\n"
     }
+  end
+
+  def product_context_input(confirmation)
+    "#{[
+      'Help people learn with mentors',
+      'Students and mentors',
+      'Learning lacks feedback',
+      'Students complete guided courses',
+      'Ukraine; Ukrainian and English',
+      'Coursera, Udemy',
+      'Small team',
+      'Marketplace',
+      confirmation
+    ].join("\n")}\n"
   end
 
   def home = "# Human Home\n\nNever replace this.\n"

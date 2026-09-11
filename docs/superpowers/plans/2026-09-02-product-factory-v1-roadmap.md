@@ -39,9 +39,11 @@ The release sandbox is private and uses repository artifacts. An organization ow
 
 ## Slice 3: Product context, inventory, and Ideation
 
+Status: Product Context is complete. Product Inventory, Ideation, Idea approval, and Idea revision remain next work; Slice 3 is not complete.
+
 Delivers:
 
-- Product Context wizard publication;
+- Product Context wizard publication (complete);
 - Product Inventory BA + Manual QA workflow and human approval gate;
 - Idea schema/template/log/run documents;
 - `$product-inventory`, `$ideation`, `$idea-approve`, and `$idea-revise`;

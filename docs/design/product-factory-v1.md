@@ -127,18 +127,20 @@ The wizard:
 
 ### 4.2 Required product context
 
-Setup asks for:
+The delivered Product Context portion of Slice 3 asks for:
 
-- product name;
 - mission;
 - target users;
 - primary user problem;
 - desired outcome;
 - markets and languages;
 - optional competitor seeds;
-- optional constraints and non-goals.
+- optional constraints;
+- optional non-goals.
 
-It publishes an immutable Product Context version and updates the configured `product.context_document` landing document.
+Setup asks for these eight values before its one confirmation. It publishes the mutable configured `product.context_document` logical ID (`context` by default) and immutable `context/v1` version. The repository adapter renders those IDs as `product/context.md` and `product/context/v1.md`. Users review and commit repository-adapter output through their normal Git workflow; setup never commits, branches, or pushes.
+
+Only Product Context is complete in Slice 3. Product Inventory, Ideation, Idea approval, and Idea revision remain next work.
 
 ### 4.3 GitHub authentication and permissions
 

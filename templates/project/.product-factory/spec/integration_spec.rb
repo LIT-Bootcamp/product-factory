@@ -12,4 +12,8 @@ RSpec.describe "installed Product Factory integration" do
   it "loads the Product Factory installation state" do
     expect(ProductFactory::Installation.load(project_root)).to be_a(ProductFactory::Installation)
   end
+
+  it "configures Product Context document IDs" do
+    expect(ProductFactory::Config.load(project_root).product).to include("context_document" => "context")
+  end
 end

@@ -7,7 +7,8 @@ RSpec.describe ProductFactory::Setup::Runner do
       artifact_store = FakeArtifactStore.new
       first_output = StringIO.new
       first = build_full_setup(
-        target, github:, artifact_store:, input: StringIO.new("Bootcamper\nyes\n"), output: first_output
+        target, github:, artifact_store:, input: StringIO.new("Bootcamper\n#{product_context_input('yes')}"),
+                output: first_output
       )
 
       expect(first.run([])).to eq(:success)
@@ -21,23 +22,69 @@ RSpec.describe ProductFactory::Setup::Runner do
       expect(installation.artifact_adapter).to eq("repository")
       expect(installation.artifact_document_hashes).to eq(artifact_store.document_hashes)
       expect(installation.artifact_revision).to eq(artifact_store.revision)
+      expect(artifact_store.requested_document_ids).to eq(
+        ProductFactory::Artifacts::Planner::DOCUMENT_IDS + %w[context context/v1]
+      )
+      expect(artifact_store.snapshot(document_ids: %w[context context/v1]).fetch("documents")).to include(
+        "context" => include("Current version: [v1](context/v1.md)"),
+        "context/v1" => include("Help people learn with mentors")
+      )
 
       second_output = StringIO.new
       second = build_full_setup(target, github:, artifact_store:, input: StringIO.new, output: second_output)
       expect(second.run([])).to eq(:success)
       expect(second_output.string).to include("Product Factory is up to date")
       expect(second_output.string).not_to include("Apply this plan?")
+      expect(second_output.string).not_to include("Mission: ")
     end
   end
 
   it "does not initialize Wiki storage for repository setup" do
     in_tmp_repo do |target|
       setup = build_full_setup(
-        target, github: FakeGitHub.new, artifact_store: nil, input: StringIO.new("Bootcamper\nno\n")
+        target, github: FakeGitHub.new, artifact_store: nil,
+                input: StringIO.new("Bootcamper\n#{product_context_input('no')}")
       )
 
       expect(setup.run([])).to eq(:declined)
       expect(Dir.children(target)).to be_empty
+    end
+  end
+
+  it "does not publish Product Context when the plan is declined" do
+    in_tmp_repo do |target|
+      artifact_store = FakeArtifactStore.new
+      setup = build_full_setup(
+        target, github: FakeGitHub.new, artifact_store:,
+                input: StringIO.new("Bootcamper\n#{product_context_input('no')}")
+      )
+
+      expect(setup.run([])).to eq(:declined)
+      expect(artifact_store.snapshot(document_ids: %w[context context/v1]).fetch("documents")).to be_empty
+    end
+  end
+
+  it "adds missing Product Context during refresh without asking for the product name" do
+    in_tmp_repo do |target|
+      config = YAML.safe_load_file(File.join(FileHelpers::FACTORY_ROOT, "templates/config.yml"))
+      config.fetch("product")["name"] = "Bootcamper"
+      config.fetch("github").merge!(
+        "organization" => "LIT-Bootcamp", "repository" => "bootcamper",
+        "project_title" => "Bootcamper Product Factory"
+      )
+      write(target, ProductFactory::Config::PATH, YAML.dump(config))
+      ProductFactory::Installation.empty.with("artifact_adapter" => "repository").write(target)
+      artifact_store = FakeArtifactStore.new
+      output = StringIO.new
+      setup = build_full_setup(
+        target, github: FakeGitHub.new, artifact_store:, input: StringIO.new(product_context_input("yes")), output:
+      )
+
+      expect(setup.run([])).to eq(:success)
+      expect(output.string).not_to include("Product name")
+      expect(output.string).to include("Mission: ", "SYNC artifacts:documents")
+      expect(artifact_store.snapshot(document_ids: %w[context context/v1]).fetch("documents"))
+        .to include("context/v1" => include("Initial Product Context"))
     end
   end
 
@@ -71,7 +118,8 @@ RSpec.describe ProductFactory::Setup::Runner do
     in_tmp_repo do |target|
       github = FakeGitHub.new(fail_once_after: ProductFactory::Operation::ENSURE_PROJECT)
       artifact_store = FakeArtifactStore.new
-      first = build_full_setup(target, github:, artifact_store:, input: StringIO.new("Bootcamper\nyes\n"))
+      first = build_full_setup(target, github:, artifact_store:,
+                                       input: StringIO.new("Bootcamper\n#{product_context_input('yes')}"))
 
       expect { first.run([]) }.to raise_error(ProductFactory::ExternalFailure, "simulated interruption")
       plans = Dir.glob(File.join(target, ".product-factory/runs/*.json"))
@@ -175,7 +223,7 @@ RSpec.describe ProductFactory::Setup::Runner do
       artifact_store = FakeArtifactStore.new
       github = FakeGitHub.new
       first = build_full_setup(
-        target, github:, artifact_store:, input: StringIO.new("Bootcamper\nyes\n")
+        target, github:, artifact_store:, input: StringIO.new("Bootcamper\n#{product_context_input('yes')}")
       )
       expect(first.run([])).to eq(:success)
 
@@ -438,7 +486,8 @@ RSpec.describe ProductFactory::Setup::Runner do
   end
 
   def build_full_setup(
-    target, github:, artifact_store:, input: StringIO.new("Bootcamper\nyes\n"), output: StringIO.new
+    target, github:, artifact_store:,
+    input: StringIO.new("Bootcamper\n#{product_context_input('yes')}"), output: StringIO.new
   )
     status = instance_double(Process::Status, success?: true, exitstatus: 0)
     shell = instance_double(ProductFactory::StreamShell)
@@ -455,5 +504,19 @@ RSpec.describe ProductFactory::Setup::Runner do
       github_writer: github,
       artifact_store:
     )
+  end
+
+  def product_context_input(confirmation)
+    "#{[
+      'Help people learn with mentors',
+      'Students and mentors',
+      'Learning lacks feedback',
+      'Students complete guided courses',
+      'Ukraine; Ukrainian and English',
+      'Coursera, Udemy',
+      'Small team',
+      'Marketplace',
+      confirmation
+    ].join("\n")}\n"
   end
 end

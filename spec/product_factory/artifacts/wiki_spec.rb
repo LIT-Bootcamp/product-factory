@@ -30,6 +30,32 @@ RSpec.describe ProductFactory::Artifacts::Wiki do
     expect(adapter.document_hashes.fetch("ideas/index")).to eq(Digest::SHA256.hexdigest(legacy_ideas))
   end
 
+  it "maps safe versioned documents to prefixed Wiki pages" do
+    versioned_documents = {
+      "context" => "# Context\n",
+      "context/v1" => "# Context V1\n",
+      "ideas/IDEA-141/v2" => "# IDEA-141 V2\n"
+    }
+
+    expect(adapter.apply(sync_operation(versioned_documents))).to be(true)
+    expect(wiki_pages).to include(
+      "Product-Factory--context.md" => "# Context\n",
+      "Product-Factory--context--v1.md" => "# Context V1\n",
+      "Product-Factory--ideas--IDEA-141--v2.md" => "# IDEA-141 V2\n"
+    )
+    expect(adapter.snapshot(document_ids: versioned_documents.keys).fetch("documents")).to include(versioned_documents)
+    expect(adapter.link("context/v1")).to eq("Product-Factory--context--v1")
+  end
+
+  it "rejects unsafe versioned documents before committing" do
+    operation = sync_operation({ "../context" => "# Context\n" })
+    revision = adapter.revision
+
+    expect { adapter.apply(operation) }
+      .to raise_error(ProductFactory::ValidationError, "invalid Artifacts operation")
+    expect(adapter.revision).to eq(revision)
+  end
+
   it "requires a manually initialized Home page" do
     FileUtils.remove_entry(remote)
     create_wiki(home: nil)
@@ -145,15 +171,16 @@ RSpec.describe ProductFactory::Artifacts::Wiki do
       attributes: {
         "adapter" => "wiki",
         "expected_revision" => revision,
-        "expected_hashes" => expected_hashes(snapshot),
+        "expected_hashes" => expected_hashes(snapshot, documents),
         "documents" => documents,
         "reason" => "synchronize Product Factory artifacts"
       }
     )
   end
 
-  def expected_hashes(snapshot)
-    %w[index setup-log ideas/index epics/index tickets/index research/index factory-runs/index].to_h do |document|
+  def expected_hashes(snapshot, documents)
+    document_ids = ProductFactory::Artifacts::Planner::DOCUMENT_IDS | snapshot.fetch("documents").keys | documents.keys
+    document_ids.to_h do |document|
       content = snapshot.fetch("documents")[document]
       [document, content && Digest::SHA256.hexdigest(content)]
     end

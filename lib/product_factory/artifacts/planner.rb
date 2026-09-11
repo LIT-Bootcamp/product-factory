@@ -9,7 +9,7 @@ module ProductFactory
 
       def initialize(
         schema:, snapshot:, installed_hashes:, adoptions:, run_id:, recorded_at:, adapter:, operation_summaries:,
-        failures:
+        failures:, additional_documents: {}
       )
         super()
         @schema = schema
@@ -21,6 +21,7 @@ module ProductFactory
         @adapter = adapter
         @operation_summaries = operation_summaries
         @failures = failures
+        @additional_documents = additional_documents
         @changes = {}
         @conflicts = []
       end
@@ -43,7 +44,7 @@ module ProductFactory
           "factory-runs/index" => page(
             "factory-runs/index", "Factory Runs", "No factory phase runs have been published yet."
           )
-        }
+        }.merge(@additional_documents)
       end
 
       def page(document, heading, body)
@@ -118,7 +119,7 @@ module ProductFactory
           attributes: {
             "adapter" => @adapter,
             "expected_revision" => @snapshot.fetch("revision"),
-            "expected_hashes" => DOCUMENT_IDS.to_h do |document|
+            "expected_hashes" => (@snapshot.fetch("documents").keys | desired_documents.keys).to_h do |document|
               content = @snapshot.fetch("documents")[document]
               [document, content && digest(content)]
             end,

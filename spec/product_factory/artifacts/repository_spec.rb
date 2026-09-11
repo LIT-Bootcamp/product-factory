@@ -26,6 +26,47 @@ RSpec.describe ProductFactory::Artifacts::Repository do
     expect(adapter.document_hashes.fetch("index")).to eq(Digest::SHA256.hexdigest(documents.fetch("index")))
   end
 
+  it "maps safe versioned documents under the configured repository root" do
+    versioned_documents = {
+      "context" => "# Context\n",
+      "context/v1" => "# Context V1\n",
+      "ideas/IDEA-141/v2" => "# IDEA-141 V2\n"
+    }
+
+    expect(adapter.apply(sync_operation(documents: versioned_documents))).to be(true)
+    expect(File.read(File.join(target, "product/context.md"))).to eq("# Context\n")
+    expect(File.read(File.join(target, "product/context/v1.md"))).to eq("# Context V1\n")
+    expect(File.read(File.join(target, "product/ideas/IDEA-141/v2.md"))).to eq("# IDEA-141 V2\n")
+    expect(adapter.snapshot(document_ids: versioned_documents.keys).fetch("documents")).to include(versioned_documents)
+    expect(adapter.link("context/v1")).to eq("context/v1.md")
+  end
+
+  it "rejects dynamic documents that collide with fixed setup paths" do
+    %w[README ideas/README epics/README tickets/README research/README factory-runs/README].each do |document|
+      expect { adapter.link(document) }
+        .to raise_error(ProductFactory::ValidationError, "artifact document collides with a fixed setup path")
+    end
+  end
+
+  it "rejects logical documents that map to the same repository path" do
+    colliding_documents = { "context/index" => "index\n", "context/README" => "readme\n" }
+    snapshot = adapter.snapshot(
+      document_ids: ProductFactory::Artifacts::Planner::DOCUMENT_IDS + colliding_documents.keys
+    )
+
+    expect { adapter.apply(sync_operation(documents: colliding_documents, snapshot:)) }
+      .to raise_error(ProductFactory::ValidationError, "invalid repository artifact operation")
+    expect(File).not_to exist(File.join(target, "product/context/README.md"))
+  end
+
+  it "rejects unsafe versioned documents before writing" do
+    operation = sync_operation(documents: { "../context" => "# Context\n" })
+
+    expect { adapter.apply(operation) }
+      .to raise_error(ProductFactory::ValidationError, "invalid repository artifact operation")
+    expect(Dir.exist?(File.join(target, "product"))).to be(false)
+  end
+
   it "does not replace an already synchronized document" do
     operation = sync_operation(documents:)
     adapter.apply(operation)
@@ -141,15 +182,16 @@ RSpec.describe ProductFactory::Artifacts::Repository do
       attributes: {
         "adapter" => "repository",
         "expected_revision" => snapshot.fetch("revision"),
-        "expected_hashes" => expected_hashes(snapshot),
+        "expected_hashes" => expected_hashes(snapshot, documents),
         "documents" => documents,
         "reason" => "synchronize Product Factory artifacts"
       }
     )
   end
 
-  def expected_hashes(snapshot)
-    %w[index setup-log ideas/index epics/index tickets/index research/index factory-runs/index].to_h do |document|
+  def expected_hashes(snapshot, documents)
+    document_ids = ProductFactory::Artifacts::Planner::DOCUMENT_IDS | snapshot.fetch("documents").keys | documents.keys
+    document_ids.to_h do |document|
       content = snapshot.fetch("documents")[document]
       [document, content && Digest::SHA256.hexdigest(content)]
     end

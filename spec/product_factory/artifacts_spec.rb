@@ -4,6 +4,19 @@ RSpec.describe ProductFactory::Artifacts do
   let(:shell) { instance_double(ProductFactory::StreamShell) }
   let(:target_root) { "/application" }
 
+  it "accepts safe versioned document IDs" do
+    %w[context context/v1 ideas/IDEA-141/v2].each do |document|
+      expect(described_class.valid_document_id?(document)).to be(true)
+    end
+  end
+
+  it "rejects unsafe document IDs" do
+    unsafe_ids = [nil, "", "/context", "../context", ".", "context//v1", "context.md", "context\0v1", "context--v1"]
+    unsafe_ids.each do |document|
+      expect(described_class.valid_document_id?(document)).to be(false)
+    end
+  end
+
   it "builds the repository adapter selected by configuration" do
     config = instance_double(
       ProductFactory::Config,
@@ -47,5 +60,26 @@ RSpec.describe ProductFactory::Artifacts do
 
     expect(described_class.valid_operation?(operation)).to be(true)
     expect(described_class.valid_operation?(incomplete)).to be(false)
+  end
+
+  it "requires every desired document to have a valid expected hash key" do
+    attributes = {
+      "adapter" => "repository", "expected_revision" => "REV-1",
+      "expected_hashes" => { "context/v1" => nil },
+      "documents" => { "context/v1" => "# Context\n" }
+    }
+    build_operation = lambda do |overrides = {}|
+      ProductFactory::Operation.new(
+        kind: ProductFactory::Operation::SYNC_ARTIFACTS,
+        target: "artifacts:documents",
+        attributes: attributes.merge(overrides)
+      )
+    end
+
+    expect(described_class.valid_operation?(build_operation.call)).to be(true)
+    expect(described_class.valid_operation?(build_operation.call("documents" => {}))).to be(false)
+    expect(described_class.valid_operation?(build_operation.call("expected_hashes" => {}))).to be(false)
+    invalid_hashes = build_operation.call("expected_hashes" => { "../context" => nil })
+    expect(described_class.valid_operation?(invalid_hashes)).to be(false)
   end
 end
